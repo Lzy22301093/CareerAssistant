@@ -3,7 +3,8 @@
     "allow": [
       "Bash(pip install *)",
       "Bash(python -m pytest tests/test_health.py -v)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(backend\\): scaffold FastAPI app with health check *)"
     ]
   }
 }
