@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # LLM providers
-    openai_api_key: str = ""
-    anthropic_api_key: str = ""
-    zhipuai_api_key: str = ""
+    # LLM (OpenAI-compatible: MIMO, DeepSeek, etc.)
+    openai_api_key: str = "tp-c43d5n48zwz32jbqbq6kvb039wpbedr8slb1s9r37igtbsj6"
+    llm_base_url: str = "https://token-plan-cn.xiaomimimo.com/v1"
+    llm_model: str = "mimo-v2.5-pro"
 
     # File storage
     upload_dir: str = "uploads"
