@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python -m pytest tests/test_health.py -v)",
+      "Bash(git add *)"
+    ]
+  }
+}
