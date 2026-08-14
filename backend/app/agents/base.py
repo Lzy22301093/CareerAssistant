@@ -113,6 +113,11 @@ class BaseAgent(ABC):
     async def run(self, **kwargs) -> dict:
         """执行 Agent：构造消息 → 工具调用循环 → 解析响应。
 
+        支持的可选参数：
+        - conversation_history: list[dict]，最近对话历史（含 role/content），
+          会插入 system 与当前 user 消息之间，让 Agent 具备多轮上下文。
+          内部处理，不会传给 build_messages。
+
         工具调用循环：
         - 若 LLM 返回 tool_calls，执行工具并把结果回填，继续调用
         - 直到 LLM 返回纯文本，或达到 TOOL_LOOP_MAX_ITERATIONS
@@ -123,7 +128,10 @@ class BaseAgent(ABC):
         Raises:
             asyncio.TimeoutError: LLM 调用超时。
         """
+        conversation_history = kwargs.pop("conversation_history", None)
         messages = self.build_messages(**kwargs)
+        if conversation_history:
+            messages = self._inject_history(messages, conversation_history)
         logger.info(f"[{self.name}] calling LLM with {len(messages)} message(s)")
 
         tool_defs = self._tool_definitions()
@@ -171,6 +179,45 @@ class BaseAgent(ABC):
             raise RuntimeError(f"[{self.name}] LLM 未返回任何响应")
 
         return self.parse_response(response.content or "")
+
+    # --- 上下文注入 ---
+
+    @staticmethod
+    def _inject_history(
+        messages: list[Message], history: list[dict], limit: int = 8
+    ) -> list[Message]:
+        """把最近对话历史插入 system 与当前 user 消息之间。
+
+        Args:
+            messages: build_messages 的输出，约定结构为 [system, user, ...]。
+            history: 对话历史列表（{role, content}），只取最近的 limit 条。
+            limit: 最多注入的历史消息条数，防止上下文膨胀。
+
+        Returns:
+            注入历史后的消息列表。
+        """
+        injected: list[Message] = []
+        for h in history[-limit:]:
+            if not isinstance(h, dict):
+                continue
+            role = h.get("role")
+            content = h.get("content", "")
+            if not content:
+                continue
+            if role == "user":
+                injected.append(Message(role=Role.USER, content=content))
+            elif role in ("assistant", "ai"):
+                injected.append(Message(role=Role.ASSISTANT, content=content))
+
+        if not injected or not messages:
+            return messages
+        # 历史插在 system 消息之后、当前 user 之前；没有 system 则插在最前
+        insert_idx = 0
+        for i, m in enumerate(messages):
+            if m.role == Role.SYSTEM:
+                insert_idx = i + 1
+                break
+        return messages[:insert_idx] + injected + messages[insert_idx:]
 
     # --- 通用 JSON 解析辅助方法 ---
 

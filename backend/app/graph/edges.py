@@ -161,9 +161,9 @@ def route_after_parallel_analysis(state: GraphState) -> str:
 
 
 def route_after_parallel_render(state: GraphState) -> str:
-    """并行渲染之后的路由：结束。"""
-    logger.info("[Edge] Parallel Render → END")
-    return "end"
+    """并行渲染之后的路由：进入面试题评审。"""
+    logger.info("[Edge] Parallel Render → Interview Reviewer")
+    return "interview_reviewer"
 
 
 def route_after_reviewer(state: GraphState) -> str:
@@ -186,6 +186,29 @@ def route_after_reviewer(state: GraphState) -> str:
         return "iterate"
 
     logger.info(f"[Edge] Review score {result.score}, proceeding: {result.reason}")
+    return "proceed"
+
+
+def route_after_interview_review(state: GraphState) -> str:
+    """Interview Reviewer 之后的路由：根据 Reflection 结果决定迭代或结束。
+
+    - 评审通过（score >= 阈值）→ END
+    - 评审不通过且未达最大迭代 → 回到 Interview Q&A 迭代
+    - 达到最大迭代次数 → 强制结束
+    """
+    review = state.get("interview_review_result", {})
+    iteration = state.get("interview_iterations", 0)
+
+    result = reflect(review, iteration)
+
+    if result.action == "iterate":
+        logger.info(
+            f"[Edge] Interview review score {result.score}, iteration {iteration}, "
+            f"iterating: {result.reason}"
+        )
+        return "iterate"
+
+    logger.info(f"[Edge] Interview review score {result.score}, proceeding: {result.reason}")
     return "proceed"
 
 

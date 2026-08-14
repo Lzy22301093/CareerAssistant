@@ -44,6 +44,7 @@ class InterviewQAAgent(BaseAgent):
         jd_analysis = kwargs.get("jd_analysis", {})
         profile = kwargs.get("profile", {})
         gap_analysis = kwargs.get("gap_analysis", {})
+        user_instructions = kwargs.get("user_instructions", "")
 
         user_content = (
             f"职位分析：\n{json.dumps(jd_analysis, ensure_ascii=False, indent=2)}\n\n"
@@ -51,6 +52,8 @@ class InterviewQAAgent(BaseAgent):
         )
         if gap_analysis:
             user_content += f"\n\n差距分析：\n{json.dumps(gap_analysis, ensure_ascii=False, indent=2)}"
+        if user_instructions:
+            user_content += f"\n\n用户特别要求：{user_instructions}"
         user_content += "\n\n请生成面试题。"
 
         return [

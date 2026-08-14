@@ -5,7 +5,11 @@ import json
 import pytest
 
 from app.agents import create_agents
-from app.graph.edges import route_after_planner, route_after_reviewer
+from app.graph.edges import (
+    route_after_planner,
+    route_after_reviewer,
+    route_after_interview_review,
+)
 from app.graph.reflection import MAX_ITERATIONS
 from app.graph.nodes import (
     _build_session_state,
@@ -14,6 +18,7 @@ from app.graph.nodes import (
     gap_analyzer_node,
     html_renderer_node,
     interview_qa_node,
+    interview_reviewer_node,
     jd_analyzer_node,
     planner_node,
     profile_extractor_node,
@@ -34,6 +39,7 @@ class MockLLM:
         self._rules: list[tuple[str, str]] = []
         self._default = default_response
         self.call_count = 0
+        self.last_messages: list[Message] = []
 
     def when(self, contains: str, response: str) -> "MockLLM":
         self._rules.append((contains, response))
@@ -41,6 +47,7 @@ class MockLLM:
 
     async def chat(self, messages: list[Message], **kwargs) -> Response:
         self.call_count += 1
+        self.last_messages = messages
         content = " ".join(m.content for m in messages)
         for pattern, resp in self._rules:
             if pattern in content:
@@ -123,6 +130,34 @@ SAMPLE_CLARIFIER = json.dumps({
     "context_type": "initial",
 }, ensure_ascii=False)
 
+SAMPLE_INTERVIEW_REVIEW_PASS = json.dumps({
+    "score": 82,
+    "dimensions": {
+        "jd_coverage": {"score": 85, "comment": "覆盖良好"},
+        "category_balance": {"score": 80, "comment": "均衡"},
+        "difficulty_distribution": {"score": 80, "comment": "合理"},
+        "answer_quality": {"score": 82, "comment": "良好"},
+        "relevance": {"score": 85, "comment": "贴合"},
+    },
+    "issues": [],
+    "suggestions": [],
+    "summary": "面试题质量合格",
+}, ensure_ascii=False)
+
+SAMPLE_INTERVIEW_REVIEW_FAIL = json.dumps({
+    "score": 55,
+    "dimensions": {
+        "jd_coverage": {"score": 50, "comment": "覆盖不足"},
+        "category_balance": {"score": 50, "comment": "偏科"},
+        "difficulty_distribution": {"score": 60, "comment": "一般"},
+        "answer_quality": {"score": 55, "comment": "答案过简"},
+        "relevance": {"score": 60, "comment": "一般"},
+    },
+    "issues": [{"severity": "high", "description": "缺少系统设计题", "section": "技术题"}],
+    "suggestions": [{"priority": "high", "suggestion": "补充系统设计类题目", "section": "技术题"}],
+    "summary": "需要改进",
+}, ensure_ascii=False)
+
 
 class SmartMockLLM(MockLLM):
     """能根据状态智能路由的 Mock LLM。"""
@@ -166,6 +201,7 @@ def _create_mock_llm() -> MockLLM:
     llm.when("生成渲染配置", SAMPLE_RENDER)
     llm.when("生成面试题", SAMPLE_INTERVIEW)
     llm.when("评审简历内容", SAMPLE_REVIEW_PASS)
+    llm.when("评审面试题", SAMPLE_INTERVIEW_REVIEW_PASS)
     llm.when("判断缺少什么信息", SAMPLE_CLARIFIER)
     return llm
 
@@ -227,6 +263,34 @@ class TestEdges:
             "content_iterations": MAX_ITERATIONS,
         }
         assert route_after_reviewer(state) == "proceed"
+
+    def test_route_after_interview_review_pass(self):
+        """面试题评审高分通过。"""
+        state: GraphState = {
+            "interview_review_result": {"score": PASS_SCORE + 5, "suggestions": [], "issues": []},
+            "interview_iterations": 1,
+        }
+        assert route_after_interview_review(state) == "proceed"
+
+    def test_route_after_interview_review_iterate(self):
+        """面试题评审低分迭代。"""
+        state: GraphState = {
+            "interview_review_result": {
+                "score": 50,
+                "suggestions": [{"priority": "high"}],
+                "issues": [],
+            },
+            "interview_iterations": 1,
+        }
+        assert route_after_interview_review(state) == "iterate"
+
+    def test_route_after_interview_review_max_iterations(self):
+        """面试题评审达到最大迭代强制通过。"""
+        state: GraphState = {
+            "interview_review_result": {"score": 30, "suggestions": [], "issues": []},
+            "interview_iterations": MAX_ITERATIONS,
+        }
+        assert route_after_interview_review(state) == "proceed"
 
 
 # === 节点函数测试 ===
@@ -336,6 +400,40 @@ class TestNodes:
         assert len(result["interview_questions"]["questions"]) == 1
 
     @pytest.mark.asyncio
+    async def test_interview_qa_node_with_review_feedback(self):
+        """迭代时应包含评审改进建议，并递增迭代次数。"""
+        llm = MockLLM(SAMPLE_INTERVIEW)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "jd_analysis": {"job_title": "Python 工程师"},
+            "profile": {"name": "张三"},
+            "interview_review_result": {
+                "score": 55,
+                "suggestions": [{"priority": "high", "suggestion": "补充系统设计题", "section": "技术题"}],
+                "issues": [{"severity": "high", "description": "缺少系统设计题", "section": "技术题"}],
+            },
+            "interview_iterations": 1,
+        }
+        result = await interview_qa_node(state, agents)
+        assert result["interview_iterations"] == 2
+        # 验证改进建议进入了 prompt
+        content = " ".join(m.content for m in llm.last_messages)
+        assert "补充系统设计题" in content
+
+    @pytest.mark.asyncio
+    async def test_interview_reviewer_node(self):
+        llm = MockLLM(SAMPLE_INTERVIEW_REVIEW_PASS)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "interview_questions": {"questions": []},
+            "jd_analysis": {"job_title": "Python 工程师"},
+            "profile": {"name": "张三"},
+        }
+        result = await interview_reviewer_node(state, agents)
+        assert "interview_review_result" in result
+        assert result["interview_review_result"]["score"] == 82
+
+    @pytest.mark.asyncio
     async def test_clarifier_node(self):
         llm = MockLLM(SAMPLE_CLARIFIER)
         agents = create_agents(llm)
@@ -383,6 +481,7 @@ class TestWorkflow:
         assert result.get("review_result", {}).get("score") == 82
         assert result.get("render_config", {}).get("template") == "modern"
         assert result.get("interview_questions", {}).get("questions") is not None
+        assert result.get("interview_review_result", {}).get("score") == 82
 
     @pytest.mark.asyncio
     async def test_review_triggers_iteration(self):
@@ -397,6 +496,7 @@ class TestWorkflow:
         llm.when("生成渲染配置", SAMPLE_RENDER)
         llm.when("生成面试题", SAMPLE_INTERVIEW)
         llm.when("评审简历内容", SAMPLE_REVIEW_FAIL)  # 低分评审
+        llm.when("评审面试题", SAMPLE_INTERVIEW_REVIEW_FAIL)  # 面试题低分评审
         llm.when("判断缺少什么信息", SAMPLE_CLARIFIER)
 
         graph = build_graph(llm)
@@ -406,8 +506,9 @@ class TestWorkflow:
             "jd_text": "Python 后端工程师，要求 3 年经验",
             "resume_text": "张三，Python 工程师，3年经验",
         })
-        # 应该有迭代
+        # 简历和面试题都应有迭代
         assert result.get("content_iterations", 0) > 1
+        assert result.get("interview_iterations", 0) > 1
 
     @pytest.mark.asyncio
     async def test_clarifier_route(self):

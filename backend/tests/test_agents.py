@@ -11,6 +11,7 @@ from app.agents.gap_analyzer import GapAnalyzerAgent
 from app.agents.content_generator import ContentGeneratorAgent
 from app.agents.html_renderer import HTMLRendererAgent
 from app.agents.interview_qa import InterviewQAAgent
+from app.agents.interview_reviewer import InterviewReviewerAgent
 from app.agents.planner import PlannerAgent
 from app.agents.reviewer import ReviewerAgent
 from app.agents.clarifier import ClarifierAgent
@@ -79,13 +80,14 @@ class TestBaseAgent:
         assert result is None
 
     def test_create_agents_registry(self):
-        """create_agents 创建所有 9 个 Agent。"""
+        """create_agents 创建所有 10 个 Agent。"""
         llm = MockLLM()
         agents = create_agents(llm)
-        assert len(agents) == 9
+        assert len(agents) == 10
         expected_names = [
             "jd_analyzer", "profile_extractor", "gap_analyzer",
-            "content_generator", "html_renderer", "interview_qa", "planner",
+            "content_generator", "html_renderer", "interview_qa",
+            "interview_reviewer", "planner",
         ]
         for name in expected_names:
             assert name in agents
@@ -698,3 +700,101 @@ class SimpleEchoAgent(BaseAgent):
     def parse_response(self, content: str) -> dict:
         result = self.extract_json(content)
         return result if result is not None else {"_raw": content}
+
+
+# === 对话历史注入测试 ===
+
+class _ChatAgent(BaseAgent):
+    """带 system 消息的测试 Agent。"""
+
+    name = "chat"
+
+    def build_messages(self, **kwargs) -> list[Message]:
+        return [
+            Message(role=Role.SYSTEM, content="系统提示"),
+            Message(role=Role.USER, content="当前问题"),
+        ]
+
+    def parse_response(self, content: str) -> dict:
+        result = self.extract_json(content)
+        return result if result is not None else {"_raw": content}
+
+
+class TestConversationHistory:
+    """测试 BaseAgent 的对话历史注入。"""
+
+    @pytest.mark.asyncio
+    async def test_history_injected_between_system_and_user(self):
+        """历史消息应插在 system 与当前 user 之间，且保持顺序。"""
+        llm = MockLLM('{"ok": true}')
+        agent = _ChatAgent(llm)
+        history = [
+            {"role": "user", "content": "第一轮用户"},
+            {"role": "assistant", "content": "第一轮助手"},
+        ]
+        await agent.run(conversation_history=history)
+
+        roles = [(m.role.value, m.content) for m in llm.last_messages]
+        assert roles[0] == ("system", "系统提示")
+        assert roles[1] == ("user", "第一轮用户")
+        assert roles[2] == ("assistant", "第一轮助手")
+        assert roles[3] == ("user", "当前问题")
+
+    @pytest.mark.asyncio
+    async def test_history_truncated_to_last_8(self):
+        """超过 8 条只保留最近 8 条。"""
+        llm = MockLLM('{"ok": true}')
+        agent = _ChatAgent(llm)
+        history = [{"role": "user", "content": f"消息{i}"} for i in range(20)]
+        await agent.run(conversation_history=history)
+
+        injected = [m for m in llm.last_messages if m.role == Role.USER and m.content.startswith("消息")]
+        assert len(injected) == 8
+        assert injected[0].content == "消息12"
+
+    @pytest.mark.asyncio
+    async def test_no_history_no_change(self):
+        """不传历史时消息结构不变。"""
+        llm = MockLLM('{"ok": true}')
+        agent = _ChatAgent(llm)
+        await agent.run()
+
+        roles = [m.role.value for m in llm.last_messages]
+        assert roles == ["system", "user"]
+
+
+# === Interview Reviewer Agent 测试 ===
+
+SAMPLE_INTERVIEW_REVIEW = json.dumps({
+    "score": 80,
+    "dimensions": {
+        "jd_coverage": {"score": 82, "comment": "覆盖良好"},
+        "category_balance": {"score": 75, "comment": "一般"},
+        "difficulty_distribution": {"score": 80, "comment": "合理"},
+        "answer_quality": {"score": 78, "comment": "良好"},
+        "relevance": {"score": 85, "comment": "贴合"},
+    },
+    "issues": [],
+    "suggestions": [{"priority": "medium", "suggestion": "补充系统设计题", "section": "技术题"}],
+    "summary": "质量良好",
+}, ensure_ascii=False)
+
+
+class TestInterviewReviewer:
+    @pytest.mark.asyncio
+    async def test_parse_valid(self):
+        llm = MockLLM(SAMPLE_INTERVIEW_REVIEW)
+        agent = InterviewReviewerAgent(llm)
+        result = await agent.run(interview_questions={}, jd_analysis={}, profile={})
+        assert result["score"] == 80
+        assert len(result["dimensions"]) == 5
+        assert len(result["suggestions"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_parse_invalid(self):
+        llm = MockLLM("这不是 JSON")
+        agent = InterviewReviewerAgent(llm)
+        result = await agent.run(interview_questions={}, jd_analysis={}, profile={})
+        assert result.get("_parse_error") is True
+        assert result["score"] == 0
+        assert result["dimensions"] == {}

@@ -7,6 +7,7 @@ from app.agents.gap_analyzer import GapAnalyzerAgent
 from app.agents.content_generator import ContentGeneratorAgent
 from app.agents.html_renderer import HTMLRendererAgent
 from app.agents.interview_qa import InterviewQAAgent
+from app.agents.interview_reviewer import InterviewReviewerAgent
 from app.agents.planner import PlannerAgent
 from app.agents.reviewer import ReviewerAgent
 from app.agents.clarifier import ClarifierAgent
@@ -19,6 +20,7 @@ __all__ = [
     "ContentGeneratorAgent",
     "HTMLRendererAgent",
     "InterviewQAAgent",
+    "InterviewReviewerAgent",
     "PlannerAgent",
     "ReviewerAgent",
     "ClarifierAgent",
@@ -32,6 +34,7 @@ def create_agents(llm) -> dict[str, BaseAgent]:
     部分 Agent 注册了工具（function calling）：
     - gap_analyzer: similar_cases（RAG 相似案例检索）
     - interview_qa: question_bank（面试题库检索）
+    - content_generator: best_practices / keyword_optimizer / template_search
 
     Args:
         llm: LLMProvider 实例。
@@ -41,8 +44,9 @@ def create_agents(llm) -> dict[str, BaseAgent]:
     """
     # 工具在函数内延迟导入，避免模块加载时的循环依赖和开销
     from app.rag.service import RAGService
-    from app.tools.analysis_tools import SimilarCasesTool
+    from app.tools.analysis_tools import BestPracticesTool, KeywordOptimizerTool, SimilarCasesTool
     from app.tools.knowledge_tools import QuestionBankTool
+    from app.tools.render_tools import TemplateSearchTool
 
     return {
         "jd_analyzer": JDAnalyzerAgent(llm),
@@ -51,12 +55,20 @@ def create_agents(llm) -> dict[str, BaseAgent]:
             llm,
             tools=[SimilarCasesTool(rag_service=RAGService())],
         ),
-        "content_generator": ContentGeneratorAgent(llm),
+        "content_generator": ContentGeneratorAgent(
+            llm,
+            tools=[
+                BestPracticesTool(),
+                KeywordOptimizerTool(),
+                TemplateSearchTool(),
+            ],
+        ),
         "html_renderer": HTMLRendererAgent(llm),
         "interview_qa": InterviewQAAgent(
             llm,
             tools=[QuestionBankTool(llm_provider=llm)],
         ),
+        "interview_reviewer": InterviewReviewerAgent(llm),
         "planner": PlannerAgent(llm),
         "reviewer": ReviewerAgent(llm),
         "clarifier": ClarifierAgent(llm),

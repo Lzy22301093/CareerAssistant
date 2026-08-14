@@ -193,15 +193,37 @@ async def html_renderer_node(state: GraphState, agents: dict) -> dict:
 
 
 async def interview_qa_node(state: GraphState, agents: dict) -> dict:
-    """Interview Q&A 节点：生成面试题。"""
+    """Interview Q&A 节点：生成面试题。如果是迭代，附带评审改进建议。"""
     logger.info("[Node] Interview Q&A")
     agent = agents["interview_qa"]
+
+    # 检查是否有评审反馈需要改进
+    review_result = state.get("interview_review_result", {})
+    user_instructions = ""
+    if review_result and review_result.get("suggestions"):
+        from app.graph.reflection import build_reflection_prompt
+        user_instructions = build_reflection_prompt(review_result, target="面试题")
+
     result = await agent.run(
         jd_analysis=state.get("jd_analysis", {}),
         profile=state.get("profile", {}),
         gap_analysis=state.get("gap_analysis", {}),
+        user_instructions=user_instructions,
     )
-    return {"interview_questions": result}
+    iterations = state.get("interview_iterations", 0) + 1
+    return {"interview_questions": result, "interview_iterations": iterations}
+
+
+async def interview_reviewer_node(state: GraphState, agents: dict) -> dict:
+    """Interview Reviewer 节点：评审面试题质量。"""
+    logger.info("[Node] Interview Reviewer")
+    agent = agents["interview_reviewer"]
+    result = await agent.run(
+        interview_questions=state.get("interview_questions", {}),
+        jd_analysis=state.get("jd_analysis", {}),
+        profile=state.get("profile", {}),
+    )
+    return {"interview_review_result": result}
 
 
 async def parallel_analysis_node(state: GraphState, agents: dict) -> dict:
@@ -310,6 +332,8 @@ async def clarifier_node(state: GraphState, agents: dict) -> dict:
         session_state=_build_session_state(state),
         route_reason=state.get("route_reason", ""),
         is_multi_turn=is_multi_turn,
+        # 注入最近对话历史（排除当前消息，当前消息由 user_message 单独携带）
+        conversation_history=(state.get("messages") or [])[:-1],
     )
 
     # 构建更新

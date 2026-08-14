@@ -9,6 +9,11 @@ from app.llm import Message, Role
 
 SYSTEM_PROMPT = """你是一个专业的简历内容生成助手。你的任务是根据候选人画像、职位要求和差距分析，生成针对性的简历内容。
 
+可用工具：
+- best_practices：获取简历撰写最佳实践（个人简介、工作经历 STAR 法则、技能板块、教育背景），生成对应板块前可调用
+- keyword_optimizer：分析简历关键词与 JD 关键词的覆盖率，生成技能/经历板块前后可调用以优化关键词
+- template_search：搜索可用简历模板风格，帮助确定内容的组织方式
+
 请以 JSON 格式返回生成的简历内容：
 {
     "sections": [

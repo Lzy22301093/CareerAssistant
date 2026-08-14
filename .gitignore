@@ -255,3 +255,9 @@ $RECYCLE.BIN/
 .env
 .env.*
 !.env.example
+
+# 上传/导出产物
+uploads/
+backend/uploads/
+exports/
+backend/exports/

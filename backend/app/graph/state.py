@@ -48,6 +48,10 @@ class GraphState(TypedDict, total=False):
     # === Interview Q&A 输出 ===
     interview_questions: dict[str, Any]  # 面试题列表
 
+    # === Interview Reviewer 输出 ===
+    interview_review_result: dict[str, Any]  # 面试题评审结果（score, issues, suggestions）
+    interview_iterations: int               # 面试题迭代次数
+
     # === Clarifier 输出 ===
     clarification_question: str     # 需要向用户澄清的问题
     clarification_history: list[dict[str, Any]]  # 澄清对话历史

@@ -19,6 +19,7 @@ from app.graph.edges import (
     route_after_clarifier,
     route_after_parallel_analysis,
     route_after_parallel_render,
+    route_after_interview_review,
 )
 from app.graph.nodes import (
     clarifier_node,
@@ -26,6 +27,7 @@ from app.graph.nodes import (
     gap_analyzer_node,
     html_renderer_node,
     interview_qa_node,
+    interview_reviewer_node,
     jd_analyzer_node,
     parallel_analysis_node,
     parallel_render_node,
@@ -99,6 +101,9 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     async def _interview_qa(state: GraphState):
         return await interview_qa_node(state, agents)
 
+    async def _interview_reviewer(state: GraphState):
+        return await interview_reviewer_node(state, agents)
+
     async def _parallel_analysis(state: GraphState):
         return await parallel_analysis_node(state, agents)
 
@@ -120,6 +125,7 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     graph.add_node("reviewer", _reviewer)
     graph.add_node("html_renderer", _html_renderer)
     graph.add_node("interview_qa", _interview_qa)
+    graph.add_node("interview_reviewer", _interview_reviewer)
     graph.add_node("parallel_analysis", _parallel_analysis)
     graph.add_node("parallel_render", _parallel_render)
     graph.add_node("clarifier", _clarifier)
@@ -169,15 +175,23 @@ def build_graph(llm: LLMProvider) -> StateGraph:
         },
     )
 
-    # HTML Renderer → Interview Q&A → 结束（串行备用路径）
+    # HTML Renderer → Interview Q&A → Interview Reviewer（评审循环）→ 结束
     graph.add_edge("html_renderer", "interview_qa")
-    graph.add_edge("interview_qa", END)
+    graph.add_edge("interview_qa", "interview_reviewer")
+    graph.add_conditional_edges(
+        "interview_reviewer",
+        route_after_interview_review,
+        {
+            "iterate": "interview_qa",
+            "proceed": END,
+        },
+    )
 
-    # 并行渲染 → 结束
+    # 并行渲染 → 面试题评审（评审循环后结束）
     graph.add_conditional_edges(
         "parallel_render",
         route_after_parallel_render,
-        {"end": END},
+        {"interview_reviewer": "interview_reviewer"},
     )
 
     # Clarifier 之后的条件边：继续处理 or 等待用户回复

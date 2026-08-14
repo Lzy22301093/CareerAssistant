@@ -72,15 +72,19 @@ def reflect(review: dict[str, Any], iteration: int = 0) -> ReflectionResult:
     )
 
 
-def build_reflection_prompt(review: dict[str, Any]) -> str:
+def build_reflection_prompt(review: dict[str, Any], target: str = "简历内容") -> str:
     """从评审结果构建迭代改进提示词。
 
-    将评审的 suggestions 和 issues 转换为给 ContentGenerator 的改进指令。
+    将评审的 suggestions 和 issues 转换为给生成 Agent 的改进指令。
+
+    Args:
+        review: 评审结果（score, suggestions, issues）。
+        target: 改进对象名称，如 "简历内容" / "面试题"。
     """
     suggestions = review.get("suggestions", [])
     issues = review.get("issues", [])
 
-    parts = ["请根据以下评审反馈改进简历内容：\n"]
+    parts = [f"请根据以下评审反馈改进{target}：\n"]
 
     if issues:
         parts.append("需要修复的问题：")

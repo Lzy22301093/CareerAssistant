@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI 求职助手：用户输入 JD + 简历，多 Agent 协作完成分析、匹配、简历生成、面试准备。
 
-- 后端：FastAPI + LangGraph（9 个 Agent 状态机）+ MySQL + Redis
+- 后端：FastAPI + LangGraph（10 个 Agent 状态机）+ MySQL + Redis
 - 前端：Vue 3 + TypeScript + Element Plus + Pinia
 - LLM：小米 MIMO（OpenAI 兼容协议），配置见 `backend/app/config.py`
 - 部署：Docker Compose 四服务（backend, frontend, redis, mysql）
@@ -47,7 +47,7 @@ cd backend && python -m pytest tests/ -v --ignore=tests/test_tools_integration.p
 
 ```text
 backend/app/
-  agents/       # 9 个 LLM Agent（继承 BaseAgent）
+  agents/       # 10 个 LLM Agent（继承 BaseAgent，部分带工具调用）
   graph/        # LangGraph 工作流（workflow.py 是入口，nodes.py 是节点，edges.py 是路由）
   api/          # FastAPI 路由（health, auth, preferences, sessions）
   models/       # ORM（orm.py）、Pydantic schemas（schemas.py）、session store
