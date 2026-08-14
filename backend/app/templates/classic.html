@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ name }} - 简历</title>
+    <style>
+        body { font-family: 'Times New Roman', serif; margin: 40px; color: #000; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .name { font-size: 28px; margin: 0; }
+        .contact { margin-top: 10px; }
+        .section { margin-bottom: 25px; }
+        .section-title { font-size: 16px; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 3px; }
+        .item { margin: 12px 0; }
+        .item-header { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 class="name">{{ name }}</h1>
+        <div class="contact">
+            {% if email %}{{ email }}{% endif %}
+            {% if phone %} | {{ phone }}{% endif %}
+            {% if location %} | {{ location }}{% endif %}
+        </div>
+    </div>
+
+    {% if summary %}
+    <div class="section">
+        <h2 class="section-title">Summary</h2>
+        <p>{{ summary }}</p>
+    </div>
+    {% endif %}
+
+    {% if skills %}
+    <div class="section">
+        <h2 class="section-title">Skills</h2>
+        <p>{{ skills | join(' • ') }}</p>
+    </div>
+    {% endif %}
+
+    {% if experience %}
+    <div class="section">
+        <h2 class="section-title">Experience</h2>
+        {% for exp in experience %}
+        <div class="item">
+            <div class="item-header">{{ exp.title }}, {{ exp.company }} ({{ exp.date }})</div>
+            <p>{{ exp.description }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if education %}
+    <div class="section">
+        <h2 class="section-title">Education</h2>
+        {% for edu in education %}
+        <div class="item">
+            <div class="item-header">{{ edu.school }} ({{ edu.date }})</div>
+            <p>{{ edu.degree }} - {{ edu.major }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</body>
+</html>

@@ -75,3 +75,9 @@ class LLMProvider(Protocol):
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> AsyncIterator[Chunk]: ...
+
+    async def generate(self, prompt: str, temperature: float = 0.7, max_tokens: int = 4096) -> str:
+        """便捷方法：发送单条 prompt，返回文本内容。"""
+        messages = [Message(role=Role.USER, content=prompt)]
+        resp = await self.chat(messages, temperature=temperature, max_tokens=max_tokens)
+        return resp.content

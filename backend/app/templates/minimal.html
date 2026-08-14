@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ name }} - 简历</title>
+    <style>
+        body { font-family: 'Helvetica Neue', sans-serif; margin: 50px; color: #333; line-height: 1.6; }
+        h1 { font-size: 24px; font-weight: 300; }
+        .contact { color: #666; font-size: 14px; margin-bottom: 40px; }
+        .section { margin-bottom: 35px; }
+        .section-title { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; color: #999; margin-bottom: 15px; }
+        .item { margin-bottom: 20px; }
+        .item-title { font-weight: 500; }
+        .item-meta { font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>{{ name }}</h1>
+    <div class="contact">
+        {% if email %}{{ email }}{% endif %}
+        {% if phone %} · {{ phone }}{% endif %}
+        {% if location %} · {{ location }}{% endif %}
+    </div>
+
+    {% if summary %}
+    <div class="section">
+        <div class="section-title">About</div>
+        <p>{{ summary }}</p>
+    </div>
+    {% endif %}
+
+    {% if skills %}
+    <div class="section">
+        <div class="section-title">Skills</div>
+        <p>{{ skills | join(' · ') }}</p>
+    </div>
+    {% endif %}
+
+    {% if experience %}
+    <div class="section">
+        <div class="section-title">Experience</div>
+        {% for exp in experience %}
+        <div class="item">
+            <div class="item-title">{{ exp.title }} at {{ exp.company }}</div>
+            <div class="item-meta">{{ exp.date }}</div>
+            <p>{{ exp.description }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if education %}
+    <div class="section">
+        <div class="section-title">Education</div>
+        {% for edu in education %}
+        <div class="item">
+            <div class="item-title">{{ edu.school }}</div>
+            <div class="item-meta">{{ edu.degree }} · {{ edu.major }} · {{ edu.date }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</body>
+</html>

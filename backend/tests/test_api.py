@@ -1,0 +1,256 @@
+"""API 集成测试 — 测试端到端 API 行为。"""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import AsyncMock, patch, MagicMock
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from app.api.sessions import get_store, _new_session_data
+from app.llm.base import LLMProvider, Response, Role, Message
+from app.models.schemas import SessionStage
+from app.models.session_store import InMemorySessionStore
+
+
+class MockLLM(LLMProvider):
+    """模拟 LLM 提供商，用于 API 测试。"""
+
+    def __init__(self):
+        self._handlers: list[tuple[str, str]] = []
+        self.default_response = '{"route": "jd_analyzer", "route_reason": "test"}'
+
+    def when(self, contains: str, response: str):
+        self._handlers.append((contains, response))
+        return self
+
+    async def chat(self, messages: list[Message], **kwargs) -> Response:
+        text = " ".join(m.content for m in messages if m.role == Role.SYSTEM or m.role == Role.USER)
+        for contains, resp in self._handlers:
+            if contains in text:
+                return Response(content=resp)
+        return Response(content=self.default_response)
+
+    async def chat_stream(self, messages, **kwargs):
+        yield Response(content=self.default_response)
+
+    async def health_check(self) -> bool:
+        return True
+
+
+@pytest.fixture
+def mock_llm():
+    """创建配置好的 MockLLM。"""
+    llm = MockLLM()
+    llm.when("职位描述", json.dumps({
+        "job_title": "Python开发工程师",
+        "company": "测试公司",
+        "requirements": ["Python", "FastAPI"],
+        "nice_to_have": ["Docker"],
+        "keywords": ["python", "fastapi"],
+    }, ensure_ascii=False))
+    llm.when("简历", json.dumps({
+        "name": "张三",
+        "skills": ["Python", "FastAPI"],
+        "experience": [],
+        "projects": [],
+        "education": [],
+    }, ensure_ascii=False))
+    llm.when("差距", json.dumps({
+        "overall_score": 75,
+        "strengths": ["Python"],
+        "gaps": ["Docker"],
+        "recommendations": ["学习Docker"],
+    }, ensure_ascii=False))
+    llm.when("简历内容", json.dumps({
+        "sections": [{"title": "技能", "content": "Python, FastAPI"}],
+        "raw_text": "技能：Python, FastAPI",
+    }, ensure_ascii=False))
+    llm.when("面试", json.dumps({
+        "questions": [
+            {
+                "question": "介绍下FastAPI",
+                "category": "技术",
+                "difficulty": "medium",
+                "answer_points": ["路由", "依赖注入"],
+                "sample_answer": "FastAPI是一个现代Python Web框架",
+            }
+        ],
+    }, ensure_ascii=False))
+    return llm
+
+
+@pytest.fixture(autouse=True)
+async def reset_store():
+    """每个测试前重置会话存储。"""
+    import app.api.sessions as mod
+    mod._store = InMemorySessionStore()
+    yield
+    mod._store = None
+
+
+@pytest.fixture
+async def client():
+    """创建异步测试客户端。"""
+    from app.main import app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+# === 测试用例 ===
+
+
+class TestCreateSession:
+    """测试创建会话。"""
+
+    async def test_create_session(self, client: AsyncClient):
+        resp = await client.post("/api/sessions/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "session_id" in data
+        assert len(data["session_id"]) == 36  # UUID
+
+
+class TestGetSession:
+    """测试获取会话。"""
+
+    async def test_get_existing_session(self, client: AsyncClient):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        resp = await client.get(f"/api/sessions/{session_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session_id"] == session_id
+        assert data["stage"] == SessionStage.INIT
+
+    async def test_get_nonexistent_session(self, client: AsyncClient):
+        resp = await client.get("/api/sessions/nonexistent")
+        assert resp.status_code == 404
+
+
+class TestSessionStatus:
+    """测试会话状态。"""
+
+    async def test_get_status(self, client: AsyncClient):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        resp = await client.get(f"/api/sessions/{session_id}/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["stage"] == SessionStage.INIT
+        assert data["has_jd"] is False
+        assert data["message_count"] == 0
+
+
+class TestSendMessage:
+    """测试发送消息（SSE 流式）。"""
+
+    async def test_send_message_sse(self, client: AsyncClient, mock_llm: MockLLM):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        with patch("app.api.sessions.create_llm_provider", return_value=mock_llm):
+            resp = await client.post(
+                f"/api/sessions/{session_id}/messages",
+                json={"content": "这是一份职位描述：Python开发"},
+            )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+
+        # 解析 SSE 事件
+        events = _parse_sse(resp.text)
+        event_types = [e["event"] for e in events]
+        assert "start" in event_types
+        assert "done" in event_types
+
+    async def test_send_message_updates_session(self, client: AsyncClient, mock_llm: MockLLM):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        with patch("app.api.sessions.create_llm_provider", return_value=mock_llm):
+            await client.post(
+                f"/api/sessions/{session_id}/messages",
+                json={"content": "分析这份职位描述"},
+            )
+
+        resp = await client.get(f"/api/sessions/{session_id}")
+        data = resp.json()
+        assert len(data["messages"]) >= 1
+        assert data["messages"][0]["role"] == "user"
+
+
+class TestFileUpload:
+    """测试文件上传。"""
+
+    async def test_upload_file(self, client: AsyncClient):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        resp = await client.post(
+            f"/api/sessions/{session_id}/upload",
+            files={"file": ("test.txt", b"Hello World", "text/plain")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["file"]["filename"] == "test.txt"
+
+    async def test_upload_to_nonexistent_session(self, client: AsyncClient):
+        resp = await client.post(
+            "/api/sessions/nonexistent/upload",
+            files={"file": ("test.txt", b"Hello", "text/plain")},
+        )
+        assert resp.status_code == 404
+
+
+class TestDeleteSession:
+    """测试删除会话。"""
+
+    async def test_delete_session(self, client: AsyncClient):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        resp = await client.delete(f"/api/sessions/{session_id}")
+        assert resp.status_code == 200
+
+        # 确认已删除
+        resp = await client.get(f"/api/sessions/{session_id}")
+        assert resp.status_code == 404
+
+    async def test_delete_nonexistent(self, client: AsyncClient):
+        resp = await client.delete("/api/sessions/nonexistent")
+        assert resp.status_code == 404
+
+
+class TestHealthEndpoint:
+    """测试健康检查端点。"""
+
+    async def test_health(self, client: AsyncClient):
+        resp = await client.get("/api/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+# === 辅助函数 ===
+
+
+def _parse_sse(text: str) -> list[dict]:
+    """解析 SSE 响应文本为事件列表。"""
+    events = []
+    current_event = None
+    current_data = None
+
+    for line in text.split("\n"):
+        if line.startswith("event: "):
+            current_event = line[7:].strip()
+        elif line.startswith("data: "):
+            current_data = json.loads(line[6:])
+        elif line == "" and current_event is not None:
+            events.append({"event": current_event, "data": current_data})
+            current_event = None
+            current_data = None
+
+    return events

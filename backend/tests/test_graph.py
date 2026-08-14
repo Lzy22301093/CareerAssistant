@@ -1,0 +1,423 @@
+"""Graph 层测试 — 测试 LangGraph 工作流编排。"""
+
+import json
+
+import pytest
+
+from app.agents import create_agents
+from app.graph.edges import route_after_planner, route_after_reviewer
+from app.graph.reflection import MAX_ITERATIONS
+from app.graph.nodes import (
+    _build_session_state,
+    clarifier_node,
+    content_generator_node,
+    gap_analyzer_node,
+    html_renderer_node,
+    interview_qa_node,
+    jd_analyzer_node,
+    planner_node,
+    profile_extractor_node,
+    reviewer_node,
+)
+from app.graph.reflection import PASS_SCORE
+from app.graph.state import GraphState
+from app.graph.workflow import build_graph
+from app.llm import LLMProvider, Message, Response, Role
+
+
+# === Mock LLM ===
+
+class MockLLM:
+    """可编程 Mock LLM。"""
+
+    def __init__(self, default_response: str = "{}"):
+        self._rules: list[tuple[str, str]] = []
+        self._default = default_response
+        self.call_count = 0
+
+    def when(self, contains: str, response: str) -> "MockLLM":
+        self._rules.append((contains, response))
+        return self
+
+    async def chat(self, messages: list[Message], **kwargs) -> Response:
+        self.call_count += 1
+        content = " ".join(m.content for m in messages)
+        for pattern, resp in self._rules:
+            if pattern in content:
+                return Response(content=resp)
+        return Response(content=self._default)
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        resp = await self.chat([Message(role=Role.USER, content=prompt)], **kwargs)
+        return resp.content
+
+
+# === 样本数据 ===
+
+SAMPLE_JD = json.dumps({
+    "job_title": "Python 工程师",
+    "company": "示例科技",
+    "requirements": [{"category": "skill", "content": "Python", "importance": "high"}],
+    "keywords": ["Python", "FastAPI"],
+}, ensure_ascii=False)
+
+SAMPLE_PROFILE = json.dumps({
+    "name": "张三",
+    "skills": ["Python", "FastAPI", "MySQL"],
+    "experience": [{"company": "ABC", "title": "工程师", "duration": "2022-2024", "highlights": []}],
+}, ensure_ascii=False)
+
+SAMPLE_GAP = json.dumps({
+    "overall_score": 80.0,
+    "strengths": ["Python 经验"],
+    "gaps": [{"category": "skill", "requirement": "K8s", "current_level": "无", "gap_severity": "minor", "suggestion": "学习"}],
+    "recommendations": ["补充 K8s"],
+}, ensure_ascii=False)
+
+SAMPLE_CONTENT = json.dumps({
+    "sections": [{"title": "个人信息", "content": "张三"}],
+    "raw_text": "张三的简历",
+}, ensure_ascii=False)
+
+SAMPLE_RENDER = json.dumps({
+    "template": "modern",
+    "font_size": 11,
+}, ensure_ascii=False)
+
+SAMPLE_INTERVIEW = json.dumps({
+    "questions": [{"question": "介绍一下 Python 经验", "category": "behavioral", "difficulty": "medium", "answer_points": [], "sample_answer": ""}],
+}, ensure_ascii=False)
+
+SAMPLE_REVIEW_PASS = json.dumps({
+    "score": 82,
+    "dimensions": {
+        "keyword_coverage": {"score": 85, "comment": "良好"},
+        "achievement_quantification": {"score": 75, "comment": "一般"},
+        "relevance": {"score": 85, "comment": "良好"},
+        "clarity": {"score": 80, "comment": "良好"},
+        "completeness": {"score": 80, "comment": "良好"},
+    },
+    "issues": [],
+    "suggestions": [],
+    "summary": "质量合格",
+}, ensure_ascii=False)
+
+SAMPLE_REVIEW_FAIL = json.dumps({
+    "score": 55,
+    "dimensions": {
+        "keyword_coverage": {"score": 50, "comment": "不足"},
+        "achievement_quantification": {"score": 40, "comment": "缺少量化"},
+        "relevance": {"score": 60, "comment": "一般"},
+        "clarity": {"score": 60, "comment": "一般"},
+        "completeness": {"score": 55, "comment": "不完整"},
+    },
+    "issues": [{"severity": "high", "description": "缺少量化数据", "section": "工作经历"}],
+    "suggestions": [{"priority": "high", "suggestion": "添加百分比数据", "section": "工作经历"}],
+    "summary": "需要改进",
+}, ensure_ascii=False)
+
+SAMPLE_CLARIFIER = json.dumps({
+    "missing_items": ["jd"],
+    "question": "请提供目标职位的 JD。",
+    "suggestions": ["粘贴 JD 文本"],
+    "context_type": "initial",
+}, ensure_ascii=False)
+
+
+class SmartMockLLM(MockLLM):
+    """能根据状态智能路由的 Mock LLM。"""
+
+    async def chat(self, messages: list[Message], **kwargs) -> Response:
+        self.call_count += 1
+        content = " ".join(m.content for m in messages)
+
+        # 检查是否是 Planner 的路由决策
+        if "路由决策规则" in content:
+            # 根据状态决定路由
+            if '"has_gap_analysis": true' in content and '"has_resume_content": false' in content:
+                return Response(content=json.dumps({"route": "content_generator", "reason": "可以生成简历内容"}))
+            if '"has_resume_content": true' in content and '"has_render_config": false' in content:
+                return Response(content=json.dumps({"route": "html_renderer", "reason": "可以渲染HTML"}))
+            if '"has_render_config": true' in content and '"has_interview_questions": false' in content:
+                return Response(content=json.dumps({"route": "interview_qa", "reason": "可以生成面试题"}))
+            if '"has_jd": true' in content and '"has_profile": true' in content and '"has_gap_analysis": false' in content:
+                return Response(content=json.dumps({"route": "gap_analyzer", "reason": "可以进行差距分析"}))
+            if '"has_jd": true' in content and '"has_profile": false' in content:
+                return Response(content=json.dumps({"route": "profile_extractor", "reason": "需要提取简历画像"}))
+            if '"has_jd": false' in content:
+                return Response(content=json.dumps({"route": "jd_analyzer", "reason": "用户提供了 JD"}))
+
+        # 其他规则
+        for pattern, resp in self._rules:
+            if pattern in content:
+                return Response(content=resp)
+        return Response(content=self._default)
+
+
+def _create_mock_llm() -> MockLLM:
+    """创建预设好的 Mock LLM，匹配所有 Agent 的 prompt。"""
+    llm = SmartMockLLM("{}")
+    # 按优先级排列：先匹配更具体的关键词
+    llm.when("提取关键词和短语", json.dumps({"keywords": ["Python", "FastAPI"]}, ensure_ascii=False))
+    llm.when("分析以下职位描述", SAMPLE_JD)
+    llm.when("请解析以下简历", SAMPLE_PROFILE)
+    llm.when("分析两者的匹配度", SAMPLE_GAP)
+    llm.when("生成针对性的简历内容", SAMPLE_CONTENT)
+    llm.when("生成渲染配置", SAMPLE_RENDER)
+    llm.when("生成面试题", SAMPLE_INTERVIEW)
+    llm.when("评审简历内容", SAMPLE_REVIEW_PASS)
+    llm.when("判断缺少什么信息", SAMPLE_CLARIFIER)
+    return llm
+
+
+# === State 辅助函数测试 ===
+
+class TestBuildSessionState:
+    def test_empty_state(self):
+        state: GraphState = {}
+        result = _build_session_state(state)
+        assert result["has_jd"] is False
+        assert result["has_profile"] is False
+        assert result["content_iterations"] == 0
+
+    def test_partial_state(self):
+        state: GraphState = {"jd_analysis": {"job_title": "test"}, "content_iterations": 2}
+        result = _build_session_state(state)
+        assert result["has_jd"] is True
+        assert result["has_profile"] is False
+        assert result["content_iterations"] == 2
+
+
+# === 条件边测试 ===
+
+class TestEdges:
+    def test_route_after_planner(self):
+        """规则引擎：有待分析的 JD 文本 → 路由到 jd_analyzer。"""
+        state: GraphState = {"jd_text": "Python 工程师，要求 3 年经验"}
+        assert route_after_planner(state) == "jd_analyzer"
+
+    def test_route_after_planner_clarify(self):
+        state: GraphState = {"route": "clarify"}
+        assert route_after_planner(state) == "clarifier"
+
+    def test_route_after_planner_unknown(self):
+        state: GraphState = {"route": "unknown"}
+        assert route_after_planner(state) == "clarifier"
+
+    def test_route_after_reviewer_pass(self):
+        """高分通过。"""
+        state: GraphState = {
+            "review_result": {"score": PASS_SCORE + 5, "suggestions": [], "issues": []},
+            "content_iterations": 1,
+        }
+        assert route_after_reviewer(state) == "proceed"
+
+    def test_route_after_reviewer_iterate(self):
+        """低分迭代。"""
+        state: GraphState = {
+            "review_result": {"score": 50, "suggestions": [{"priority": "high"}], "issues": []},
+            "content_iterations": 1,
+        }
+        assert route_after_reviewer(state) == "iterate"
+
+    def test_route_after_reviewer_max_iterations(self):
+        """达到最大迭代强制通过。"""
+        state: GraphState = {
+            "review_result": {"score": 30, "suggestions": [], "issues": []},
+            "content_iterations": MAX_ITERATIONS,
+        }
+        assert route_after_reviewer(state) == "proceed"
+
+
+# === 节点函数测试 ===
+
+class TestNodes:
+    @pytest.mark.asyncio
+    async def test_planner_node(self):
+        llm = MockLLM(json.dumps({"route": "jd_analyzer", "reason": "用户提供了 JD"}))
+        agents = create_agents(llm)
+        state: GraphState = {"user_message": "分析这个 JD", "session_id": "test"}
+        result = await planner_node(state, agents)
+        assert result["route"] == "jd_analyzer"
+        assert "route_reason" in result
+
+    @pytest.mark.asyncio
+    async def test_jd_analyzer_node(self):
+        llm = MockLLM(SAMPLE_JD)
+        agents = create_agents(llm)
+        state: GraphState = {"user_message": "Python 后端工程师"}
+        result = await jd_analyzer_node(state, agents)
+        assert "jd_analysis" in result
+        assert result["jd_analysis"]["job_title"] == "Python 工程师"
+
+    @pytest.mark.asyncio
+    async def test_profile_extractor_node(self):
+        llm = MockLLM(SAMPLE_PROFILE)
+        agents = create_agents(llm)
+        state: GraphState = {"user_message": "张三简历"}
+        result = await profile_extractor_node(state, agents)
+        assert "profile" in result
+        assert result["profile"]["name"] == "张三"
+
+    @pytest.mark.asyncio
+    async def test_gap_analyzer_node(self):
+        llm = MockLLM(SAMPLE_GAP)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "jd_analysis": {"job_title": "Python 工程师"},
+            "profile": {"name": "张三"},
+        }
+        result = await gap_analyzer_node(state, agents)
+        assert "gap_analysis" in result
+        assert result["gap_analysis"]["overall_score"] == 80.0
+
+    @pytest.mark.asyncio
+    async def test_content_generator_node(self):
+        llm = MockLLM(SAMPLE_CONTENT)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "profile": {"name": "张三"},
+            "jd_analysis": {"job_title": "Python 工程师"},
+        }
+        result = await content_generator_node(state, agents)
+        assert "resume_content" in result
+        assert result["content_iterations"] == 1
+
+    @pytest.mark.asyncio
+    async def test_content_generator_with_review_feedback(self):
+        """迭代时应包含评审改进建议。"""
+        llm = MockLLM(SAMPLE_CONTENT)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "profile": {"name": "张三"},
+            "jd_analysis": {"job_title": "Python 工程师"},
+            "review_result": {
+                "score": 55,
+                "suggestions": [{"priority": "high", "suggestion": "添加量化数据", "section": "工作经历"}],
+                "issues": [{"severity": "high", "description": "缺少量化", "section": "工作经历"}],
+            },
+            "content_iterations": 1,
+        }
+        result = await content_generator_node(state, agents)
+        assert result["content_iterations"] == 2
+
+    @pytest.mark.asyncio
+    async def test_reviewer_node(self):
+        llm = MockLLM(SAMPLE_REVIEW_PASS)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "resume_content": {"sections": []},
+            "jd_analysis": {"job_title": "Python 工程师"},
+            "profile": {"name": "张三"},
+        }
+        result = await reviewer_node(state, agents)
+        assert "review_result" in result
+        assert result["review_result"]["score"] == 82
+
+    @pytest.mark.asyncio
+    async def test_html_renderer_node(self):
+        llm = MockLLM(SAMPLE_RENDER)
+        agents = create_agents(llm)
+        state: GraphState = {"resume_content": {"sections": []}}
+        result = await html_renderer_node(state, agents)
+        assert "render_config" in result
+        assert result["render_config"]["template"] == "modern"
+
+    @pytest.mark.asyncio
+    async def test_interview_qa_node(self):
+        llm = MockLLM(SAMPLE_INTERVIEW)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "jd_analysis": {"job_title": "Python 工程师"},
+            "profile": {"name": "张三"},
+        }
+        result = await interview_qa_node(state, agents)
+        assert "interview_questions" in result
+        assert len(result["interview_questions"]["questions"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_clarifier_node(self):
+        llm = MockLLM(SAMPLE_CLARIFIER)
+        agents = create_agents(llm)
+        state: GraphState = {"route_reason": "需要更多信息", "user_message": "帮我优化简历"}
+        result = await clarifier_node(state, agents)
+        assert "clarification_question" in result
+        assert "JD" in result["clarification_question"]
+
+    @pytest.mark.asyncio
+    async def test_clarifier_node_fallback(self):
+        """LLM 返回无效 JSON 时的降级。"""
+        llm = MockLLM("plain text")
+        agents = create_agents(llm)
+        state: GraphState = {}
+        result = await clarifier_node(state, agents)
+        assert "clarification_question" in result
+
+
+# === 完整图测试 ===
+
+class TestWorkflow:
+    @pytest.mark.asyncio
+    async def test_build_graph(self):
+        """测试图可以成功编译。"""
+        llm = MockLLM()
+        graph = build_graph(llm)
+        assert graph is not None
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_jd_to_end(self):
+        """测试完整流程：Planner → JD → Gap → Content → Review(pass) → HTML → Interview → END。"""
+        llm = _create_mock_llm()
+        graph = build_graph(llm)
+        result = await graph.ainvoke({
+            "user_message": "Python 后端工程师，要求 3 年经验",
+            "session_id": "test-001",
+            "jd_text": "Python 后端工程师，要求 3 年经验，熟悉 FastAPI",
+            "resume_text": "张三，Python 工程师，3年经验",
+        })
+        # 验证各阶段输出（流程完成后，route 字段会被更新到最后执行的路由）
+        assert result.get("jd_analysis", {}).get("job_title") == "Python 工程师"
+        assert result.get("profile", {}).get("name") == "张三"
+        assert result.get("gap_analysis", {}).get("overall_score") == 80.0
+        assert result.get("resume_content", {}).get("sections") is not None
+        assert result.get("review_result", {}).get("score") == 82
+        assert result.get("render_config", {}).get("template") == "modern"
+        assert result.get("interview_questions", {}).get("questions") is not None
+
+    @pytest.mark.asyncio
+    async def test_review_triggers_iteration(self):
+        """低分评审应触发迭代。"""
+        # 创建一个会返回低分评审的 MockLLM
+        llm = SmartMockLLM("{}")
+        llm.when("提取关键词和短语", json.dumps({"keywords": ["Python", "FastAPI"]}, ensure_ascii=False))
+        llm.when("分析以下职位描述", SAMPLE_JD)
+        llm.when("请解析以下简历", SAMPLE_PROFILE)
+        llm.when("分析两者的匹配度", SAMPLE_GAP)
+        llm.when("生成针对性的简历内容", SAMPLE_CONTENT)
+        llm.when("生成渲染配置", SAMPLE_RENDER)
+        llm.when("生成面试题", SAMPLE_INTERVIEW)
+        llm.when("评审简历内容", SAMPLE_REVIEW_FAIL)  # 低分评审
+        llm.when("判断缺少什么信息", SAMPLE_CLARIFIER)
+
+        graph = build_graph(llm)
+        result = await graph.ainvoke({
+            "user_message": "Python 后端工程师",
+            "session_id": "test-iter",
+            "jd_text": "Python 后端工程师，要求 3 年经验",
+            "resume_text": "张三，Python 工程师，3年经验",
+        })
+        # 应该有迭代
+        assert result.get("content_iterations", 0) > 1
+
+    @pytest.mark.asyncio
+    async def test_clarifier_route(self):
+        """测试 Planner 路由到 Clarifier。"""
+        llm = MockLLM(json.dumps({"route": "clarify", "reason": "需要上传简历"}))
+        llm.when("判断缺少什么信息", SAMPLE_CLARIFIER)
+        graph = build_graph(llm)
+        result = await graph.ainvoke({
+            "user_message": "帮我优化简历",
+            "session_id": "test-002",
+        })
+        assert result.get("route") == "clarifier"
+        assert result.get("clarification_question") is not None

@@ -1,0 +1,110 @@
+"""SQLAlchemy ORM models for database persistence."""
+
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.database import Base
+
+
+class User(Base):
+    """User table for authentication."""
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    sessions: Mapped[list["AnalysisSession"]] = relationship(back_populates="user")
+    preferences: Mapped["UserPreference | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<User(username={self.username!r}, email={self.email!r})>"
+
+
+class UserPreference(Base):
+    """User preferences for long-term memory."""
+    __tablename__ = "user_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    preferred_template: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    job_preferences_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # {"industry": "互联网", "role": "后端工程师"}
+    resume_style: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "concise" | "detailed"
+    extra_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 其他自定义偏好
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="preferences")
+
+    def __repr__(self) -> str:
+        return f"<UserPreference(user_id={self.user_id})>"
+
+
+class AnalysisSession(Base):
+    """Main analysis session table."""
+    __tablename__ = "analysis_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    stage: Mapped[str] = mapped_column(String(20), default="init", nullable=False)
+    jd_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    jd_analysis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    profile_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gap_analysis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    render_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User | None"] = relationship(back_populates="sessions")
+    resume_versions: Mapped[list["ResumeVersion"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    uploaded_files: Mapped[list["UploadedFile"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<AnalysisSession(session_id={self.session_id!r}, stage={self.stage!r})>"
+
+
+class ResumeVersion(Base):
+    """Resume version table for tracking resume iterations."""
+    __tablename__ = "resume_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_sessions.session_id"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    content_json: Mapped[str] = mapped_column(Text, nullable=False)
+    render_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    # Relationships
+    session: Mapped["AnalysisSession"] = relationship(back_populates="resume_versions")
+
+    def __repr__(self) -> str:
+        return f"<ResumeVersion(session_id={self.session_id!r}, version={self.version})>"
+
+
+class UploadedFile(Base):
+    """Uploaded file tracking table."""
+    __tablename__ = "uploaded_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_sessions.session_id"), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=False)  # jd, resume, etc.
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    # Relationships
+    session: Mapped["AnalysisSession"] = relationship(back_populates="uploaded_files")
+
+    def __repr__(self) -> str:
+        return f"<UploadedFile(filename={self.filename!r}, type={self.file_type!r})>"

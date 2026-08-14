@@ -7,8 +7,9 @@ from app.llm import create_llm_provider, OpenAIProvider
 
 
 def test_create_provider():
-    """验证返回 OpenAIProvider 实例。"""
-    provider = create_llm_provider()
+    """验证返回 OpenAIProvider 实例（密钥通过配置注入）。"""
+    with patch("app.llm.settings.openai_api_key", "test-key"):
+        provider = create_llm_provider()
     assert isinstance(provider, OpenAIProvider)
     assert provider.model == "mimo-v2.5-pro"
 

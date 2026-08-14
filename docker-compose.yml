@@ -1,6 +1,29 @@
 version: '3.8'
 
 services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - DATABASE_URL=mysql+pymysql://career:career@mysql:3306/career_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
+      - GRAPH_TIMEOUT=${GRAPH_TIMEOUT:-600}
+      - CORS_ORIGINS=["http://localhost:5173"]
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     ports:
@@ -10,20 +33,6 @@ services:
       - /app/node_modules
     depends_on:
       - backend
-
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -36,23 +45,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: career_assistant
       MYSQL_USER: career
-      MYSQL_PASSWORD: career
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-career}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   redis_data:
