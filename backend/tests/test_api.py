@@ -366,6 +366,49 @@ class TestExportResume:
 # === 辅助函数 ===
 
 
+class TestClassifyError:
+    """错误分类测试（v3）。"""
+
+    def test_file_parse(self):
+        from app.api.sessions import _classify_error
+        category, hint = _classify_error(RuntimeError("PDF 解析失败"))
+        assert category == "file_parse"
+        assert hint
+
+    def test_timeout(self):
+        from app.api.sessions import _classify_error
+        category, _ = _classify_error(TimeoutError("timeout"))
+        assert category == "timeout"
+
+    def test_format(self):
+        from app.api.sessions import _classify_error
+        category, _ = _classify_error(ValueError("JSON 解析错误"))
+        assert category == "format"
+
+    def test_rate_limit(self):
+        from app.api.sessions import _classify_error
+
+        class Fake429(Exception):
+            status_code = 429
+
+        category, _ = _classify_error(Fake429("too many"))
+        assert category == "rate_limit"
+
+    def test_server_error(self):
+        from app.api.sessions import _classify_error
+
+        class Fake500(Exception):
+            status_code = 500
+
+        category, _ = _classify_error(Fake500("boom"))
+        assert category == "server"
+
+    def test_unknown(self):
+        from app.api.sessions import _classify_error
+        category, _ = _classify_error(RuntimeError("某个未知错误"))
+        assert category == "unknown"
+
+
 def _parse_sse(text: str) -> list[dict]:
     """解析 SSE 响应文本为事件列表。"""
     events = []

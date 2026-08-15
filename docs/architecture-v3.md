@@ -289,8 +289,8 @@ CREATE TABLE career_profiles (
 
 1. ✅ **意图分类**：prompts/intent_classification.py + graph/intent.py + planner 接入（规则引擎降 guardrail）
 2. ✅ **增量编辑**：输入版本检测（jd/profile_input_version + 下游基于版本）+ 级联重算 + profile 增量合并（修复"换岗位不重跑"bug）
-3. ⚠️ **错误处理**：trace 节点记录已实现；LLM schema 校验与错误分类 hint 扩展留待后续
-4. ✅ **Memory MVP**：career_profiles 表 + MemoryService 规则合并 + create_session 用户绑定 + memory_summary 注入（consolidate 提炼节点留待后续）
+3. ✅ **错误处理**：trace 节点记录 + `llm/structured.py` schema 校验（自动重试）+ `_classify_error` 错误分类 hint（error 事件带 category）
+4. ✅ **Memory MVP**：career_profiles 表 + MemoryService 规则合并 + create_session 用户绑定 + memory_summary 注入 + **consolidate 提炼节点**（LLM 一步，schema 校验 + 白名单落库）
 5. ✅ **工具契约**：docs/agents-contract.md
 6. ✅ **SSE 扩展**：intent + trace + answer + cover_letter 事件；前端展示
 
@@ -301,14 +301,19 @@ CREATE TABLE career_profiles (
 - 跨会话：简历上传后 career_profile 规则合并 ✅（test_memory_service.py 10 项）
 - 284 个测试全绿
 
-### M2 — 功能扩展（部分完成）
+### M2 — 功能扩展（已完成）
 
 1. ✅ **求职信生成器**：cover_letter_agent 双渠道（email/linkedin_message），用户先选渠道（Clarifier 追问）
 2. ✅ **自由问答**：question 能力单元（只读）
-3. ⚠️ 错误分类 hint 扩展、consolidate 提炼、plan_runs 持久化：待后续
+3. ✅ 错误分类 hint 扩展（_classify_error）
 4. ✅ **简历导出**：POST /api/sessions/{id}/export（html/json/md）+ 前端导出按钮（按用户要求补充）
 
-### M3 — 长久陪伴（可选推进）
+### M2.5 — 记忆提炼（补全）
+
+- ✅ `consolidate` 提炼节点：LLM 一步（`ainvoke_json_with_schema`）+ 字段白名单 + 空值过滤 + 落库；upload_profile / content_edit 意图后触发（sessions.py）
+- ✅ `llm/structured.py`：`ainvoke_json_with_schema`（schema 校验 + 自动重试 1 次），供新能力单元使用
+
+### M3 — 长久陪伴（待推进）
 
 1. `job_applications` / `interview_logs` 表 + 对话式记录（复用 Clarifier 追问）
 2. 面试失败 → 教训提取 → 技能缺口更新 → 下次面试前提醒

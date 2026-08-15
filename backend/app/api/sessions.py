@@ -539,6 +539,15 @@ async def send_message(session_id: str, request: MessageRequest):
                 except Exception as mem_err:
                     logger.warning(f"[Memory] 合并失败 user={user_id}: {mem_err}")
 
+            # consolidate 提炼（v3）：上传简历/内容编辑后，LLM 提炼长期档案增量
+            if user_id and result.get("intent") in ("upload_profile", "content_edit"):
+                try:
+                    from app.services.memory_service import MemoryService
+                    await MemoryService().consolidate(llm, user_id, request.content)
+                    logger.info(f"[Memory] user={user_id} consolidate 完成")
+                except Exception as mem_err:
+                    logger.warning(f"[Memory] consolidate 失败 user={user_id}: {mem_err}")
+
             # 发送路由信息（若本轮产生）
             if result.get("route"):
                 yield _sse_event("route", {
@@ -569,21 +578,12 @@ async def send_message(session_id: str, request: MessageRequest):
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
 
-            # 提供更详细的错误信息
-            error_detail = str(e)
-            error_hint = ""
-
-            # 检查是否是文件解析相关的错误
-            if "PDF" in error_detail or "pdf" in error_detail or "文件" in error_detail:
-                error_hint = "文件解析失败，请确认：1) 文件是否为文字型 PDF（非扫描件）2) 文件是否损坏 3) 尝试复制文本直接粘贴"
-            elif "timeout" in error_detail.lower() or "超时" in error_detail:
-                error_hint = "处理超时，请稍后重试或简化输入内容"
-            elif "json" in error_detail.lower() or "JSON" in error_detail:
-                error_hint = "数据格式解析错误，请重试"
-
+            # 错误分类（v3）：统一映射为 (category, hint)，前端可针对性展示
+            category, error_hint = _classify_error(e)
             yield _sse_event("error", {
-                "detail": error_detail,
+                "detail": str(e),
                 "hint": error_hint,
+                "category": category,
             })
 
             # 兜底保存已处理的部分结果（流式循环已即时持久化节点产物，
@@ -804,6 +804,37 @@ async def _graph_stream(graph, state: dict, total_timeout: float):
 def _sse_event(event: str, data: dict[str, Any]) -> str:
     """构造 SSE 事件字符串。"""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _classify_error(exc: Exception) -> tuple[str, str]:
+    """错误分类（v3）：返回 (category, hint)，供前端针对性提示。"""
+    detail = str(exc)
+    low = detail.lower()
+
+    if "pdf" in low or "docx" in low or "文件" in detail:
+        return (
+            "file_parse",
+            "文件解析失败，请确认：1) 文件是否为文字型 PDF（非扫描件）2) 文件是否损坏 3) 尝试复制文本直接粘贴",
+        )
+    if "timeout" in low or "超时" in detail:
+        return ("timeout", "处理超时，请稍后重试或简化输入内容")
+    if "json" in low or "schema" in low or "校验" in detail:
+        return ("format", "数据格式解析错误，请重试")
+    if isinstance(exc, TimeoutError):
+        return ("timeout", "处理超时，请稍后重试或简化输入内容")
+
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status == 429:
+        return ("rate_limit", "请求过于频繁，请稍后再试")
+    if status == 401 or status == 403:
+        return ("auth", "认证失败，请检查 API 配置或登录状态")
+    if status is not None and int(status) >= 500:
+        return ("server", "服务暂时不可用，请稍后重试")
+
+    if isinstance(exc, ValueError):
+        return ("validation", "输入数据不合法，请检查后重试")
+
+    return ("unknown", "处理失败，请重试")
 
 
 def _build_session_updates(session: dict, result: dict) -> dict[str, Any]:

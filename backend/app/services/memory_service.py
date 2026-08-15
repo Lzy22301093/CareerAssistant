@@ -106,7 +106,60 @@ class MemoryService:
 
         existing = self.get_profile(user_id) or {}
         merged = self._merge(existing, cleaned)
+        return self._persist(user_id, merged, source=source)
 
+    # === consolidate 提炼（LLM 一步，v3） ===
+
+    async def consolidate(self, llm, user_id: int, user_message: str) -> dict[str, Any]:
+        """把本轮对话增量提炼进长期档案。
+
+        - LLM 一步（schema 校验 + 自动重试一次）
+        - 输出经字段白名单与空值校验后合并落库
+        - 无增量或校验失败时静默返回现有档案（不中断流程）
+
+        Returns:
+            合并后的档案。
+        """
+        current = self.get_profile(user_id) or {}
+
+        from app.llm.structured import ainvoke_json_with_schema
+        from app.prompts.consolidation import CONSOLIDATION_PROMPT
+        from app.services.consolidation_schema import CONSOLIDATION_FIELDS, ConsolidationOutput
+
+        user_content = (
+            f"本轮对话内容（用户消息）：\n{(user_message or '')[:2000]}\n\n"
+            f"当前长期档案：\n{json.dumps(current, ensure_ascii=False)[:3000]}"
+        )
+        try:
+            output = await ainvoke_json_with_schema(
+                llm, CONSOLIDATION_PROMPT, user_content, ConsolidationOutput,
+                temperature=0.2, max_tokens=1024,
+            )
+        except ValueError as e:
+            logger.warning(f"Memory: consolidate 校验失败 user={user_id}: {e}")
+            return current
+
+        # 字段白名单 + 空值过滤
+        changes: dict[str, Any] = {}
+        for update in output.updates:
+            if update.field not in CONSOLIDATION_FIELDS:
+                continue
+            value = update.value
+            if value in (None, "", [], {}):
+                continue
+            changes[update.field] = value
+
+        if not changes:
+            logger.info(f"Memory: consolidate 无增量 user={user_id}")
+            return current
+
+        merged = self._merge(current, changes)
+        return self._persist(user_id, merged, source="consolidate")
+
+    # === 内部 ===
+
+    def _persist(self, user_id: int, merged: dict[str, Any], source: str) -> dict[str, Any]:
+        """把合并结果写入 career_profiles 表。"""
         db = self._get_db()
         try:
             row = db.query(CareerProfile).filter(CareerProfile.user_id == user_id).first()
@@ -131,9 +184,12 @@ class MemoryService:
     def _merge(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
         out = dict(existing)
 
-        # skills：集合合并
+        # skills：集合合并（容错：字符串转单元素列表）
         old_skills = list(existing.get("skills") or [])
-        new_skills = list(new.get("skills") or [])
+        new_skills_raw = new.get("skills")
+        if isinstance(new_skills_raw, str):
+            new_skills_raw = [new_skills_raw]
+        new_skills = list(new_skills_raw or [])
         if new_skills:
             seen = set(str(s).strip().lower() for s in old_skills)
             for s in new_skills:
