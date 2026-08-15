@@ -80,14 +80,14 @@ class TestBaseAgent:
         assert result is None
 
     def test_create_agents_registry(self):
-        """create_agents 创建所有 10 个 Agent。"""
+        """create_agents 创建所有 12 个 Agent。"""
         llm = MockLLM()
         agents = create_agents(llm)
-        assert len(agents) == 10
+        assert len(agents) == 12
         expected_names = [
             "jd_analyzer", "profile_extractor", "gap_analyzer",
             "content_generator", "html_renderer", "interview_qa",
-            "interview_reviewer", "planner",
+            "interview_reviewer", "planner", "question", "cover_letter",
         ]
         for name in expected_names:
             assert name in agents

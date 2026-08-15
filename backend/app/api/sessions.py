@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -87,9 +88,21 @@ def _new_session_data(session_id: str) -> dict[str, Any]:
         "render_config": None,
         "interview_questions": None,
         "uploaded_files": [],
+        # 增量编辑（v3）：输入版本与内容哈希
+        "jd_input_version": 0,
+        "profile_input_version": 0,
+        "jd_input_hash": "",
+        "resume_input_hash": "",
+        "cover_letter_channel": "",
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
     }
+
+
+def _text_hash(text: str) -> str:
+    """规范化文本后取 sha256 摘要（用于输入变化检测）。"""
+    normalized = " ".join(text.split()).lower()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
 def _ensure_upload_dir() -> str:
@@ -291,6 +304,24 @@ async def send_message(session_id: str, request: MessageRequest):
             # 解析上传的文件
             jd_text, resume_text = await _parse_uploaded_files(session)
 
+            # 增量编辑（v3）：检测输入变化 → 递增对应输入版本（级联重算的触发源）
+            session_jiv = session.get("jd_input_version", 0)
+            session_piv = session.get("profile_input_version", 0)
+            jd_input_version = session_jiv
+            profile_input_version = session_piv
+            if jd_text:
+                jd_hash = _text_hash(jd_text)
+                if jd_hash != session.get("jd_input_hash"):
+                    jd_input_version = session_jiv + 1
+                    session["jd_input_hash"] = jd_hash
+                    session["jd_input_version"] = jd_input_version
+            if resume_text:
+                resume_hash = _text_hash(resume_text)
+                if resume_hash != session.get("resume_input_hash"):
+                    profile_input_version = session_piv + 1
+                    session["resume_input_hash"] = resume_hash
+                    session["resume_input_version"] = profile_input_version
+
             # 构建初始状态
             # 注意：必须把澄清历史/就绪标记/上传文件等字段一并传入，
             # 否则 Clarifier 多轮决策和文件解析兜底逻辑都会"失忆"。
@@ -310,6 +341,18 @@ async def send_message(session_id: str, request: MessageRequest):
                 "ready_to_proceed": session.get("ready_to_proceed", False),
                 "uploaded_files": session.get("uploaded_files", []),
                 "content_iterations": session.get("content_iterations", 0),
+                "jd_input_version": jd_input_version,
+                "profile_input_version": profile_input_version,
+                # 下游基于版本（v3）：从会话读入，缺省 -1（从未分析）→ 强制重算
+                "jd_analyzed_version": session.get("jd_analyzed_version", -1),
+                "profile_analyzed_version": session.get("profile_analyzed_version", -1),
+                "gap_based_jd": session.get("gap_based_jd", -1),
+                "gap_based_profile": session.get("gap_based_profile", -1),
+                "content_based_jd": session.get("content_based_jd", -1),
+                "content_based_profile": session.get("content_based_profile", -1),
+                "interview_based_jd": session.get("interview_based_jd", -1),
+                "interview_based_profile": session.get("interview_based_profile", -1),
+                "cover_letter_channel": session.get("cover_letter_channel", ""),
                 "messages": session["messages"],
             }
 
@@ -337,6 +380,16 @@ async def send_message(session_id: str, request: MessageRequest):
                         "node": node_name,
                         "message": f"正在{label}…",
                     })
+                    # 意图事件（planner 产出）
+                    if updates.get("intent"):
+                        yield _sse_event("intent", {
+                            "intent": updates["intent"],
+                            "reason": updates.get("intent_reason", ""),
+                            "plan": updates.get("execution_plan", []),
+                        })
+                    # 节点 trace
+                    for tr in (updates.get("workflow_trace") or []):
+                        yield _sse_event("trace", tr)
                     # 实时推送该节点产出的关键数据
                     for key, event_name in _NODE_EVENT_MAP.items():
                         if updates.get(key):
@@ -507,7 +560,7 @@ async def delete_session(session_id: str):
 
 # 节点 → 用户可见的进度文案（流式推送用）
 _NODE_LABELS = {
-    "planner": "规划任务",
+    "planner": "理解意图并规划任务",
     "jd_analyzer": "分析职位描述",
     "profile_extractor": "提取简历画像",
     "gap_analyzer": "进行匹配度分析",
@@ -519,6 +572,8 @@ _NODE_LABELS = {
     "interview_reviewer": "评审面试题",
     "html_renderer": "渲染简历 HTML",
     "clarifier": "澄清需求",
+    "question": "回答你的问题",
+    "cover_letter": "生成求职文案",
 }
 
 # 节点更新字段 → SSE 事件名（节点产出即实时推送）
@@ -530,6 +585,8 @@ _NODE_EVENT_MAP = {
     "render_config": "render_config",
     "interview_questions": "interview_questions",
     "clarification_question": "clarification",
+    "answer": "answer",
+    "cover_letter": "cover_letter",
 }
 
 # 需要即时持久化的结果字段（流式循环中每完成一个节点就落盘一次，
@@ -545,6 +602,8 @@ _PERSIST_FIELDS = (
     "clarification_history",
     "ready_to_proceed",
     "content_iterations",
+    "cover_letter",
+    "cover_letter_channel",
 )
 
 
@@ -628,6 +687,26 @@ def _build_session_updates(session: dict, result: dict) -> dict[str, Any]:
         session["content_iterations"] = result["content_iterations"]
         updates["content_iterations"] = result["content_iterations"]
 
+    # 增量编辑（v3）：输入版本与下游基于版本持久化（跨消息保持级联一致性）
+    for field in (
+        "jd_input_version", "profile_input_version",
+        "jd_analyzed_version", "profile_analyzed_version",
+        "gap_based_jd", "gap_based_profile",
+        "content_based_jd", "content_based_profile",
+        "interview_based_jd", "interview_based_profile",
+    ):
+        if result.get(field) is not None:
+            session[field] = result[field]
+            updates[field] = result[field]
+
+    # 求职信（v3）
+    if result.get("cover_letter"):
+        session["cover_letter"] = result["cover_letter"]
+        updates["cover_letter"] = result["cover_letter"]
+    if result.get("cover_letter_channel"):
+        session["cover_letter_channel"] = result["cover_letter_channel"]
+        updates["cover_letter_channel"] = result["cover_letter_channel"]
+
     updates["updated_at"] = datetime.now().isoformat()
     return updates
 
@@ -638,6 +717,19 @@ def _build_assistant_message(result: dict) -> str:
 
     if result.get("clarification_question"):
         return result["clarification_question"]
+
+    # 自由问答（v3）：直接返回答案
+    if result.get("answer"):
+        return result["answer"]
+
+    # 求职信（v3）
+    if result.get("cover_letter"):
+        cl = result["cover_letter"]
+        channel = cl.get("channel", "")
+        label = "招聘软件打招呼" if channel == "linkedin_message" else "求职信"
+        parts.append(f"已生成{label}文案")
+        if cl.get("subject"):
+            parts.append(f"主题：{cl['subject']}")
 
     if result.get("route") == "jd_analyzer" and result.get("jd_analysis"):
         jd = result["jd_analysis"]

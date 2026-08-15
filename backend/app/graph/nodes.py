@@ -13,6 +13,7 @@ from typing import Any
 
 from app.graph.reflection import PASS_SCORE
 from app.graph.state import GraphState
+from app.graph.trace import traced, trace_item
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,60 @@ def _has_valid_data(data: Any) -> bool:
     if data.get("_error"):
         return False
     return bool(data)
+
+
+def _infer_channel(user_message: str) -> str | None:
+    """从用户消息推断求职信渠道（v3）。"""
+    if not user_message:
+        return None
+    msg = user_message.lower()
+    if any(k in msg for k in ("打招呼", "问候", "linkedin", "私信", "消息")):
+        return "linkedin_message"
+    if any(k in msg for k in ("求职信", "邮件", "cover letter", "正式", "email")):
+        return "email"
+    return None
+
+
+async def planner_node(state: GraphState, agents: dict) -> dict:
+    """Planner 节点（v3）：LLM 意图分类 + 规则引擎兜底（guardrail）。"""
+    logger.info("[Node] Planner (Intent + Rule guardrail)")
+    from app.graph.edges import rule_based_route
+    from app.graph.intent import classify_intent
+
+    # 1. LLM 意图分类（失败/低置信 → fallback，由规则引擎兜底）
+    llm = agents["planner"].llm
+    intent_result = await classify_intent(llm, state.get("user_message", ""), state)
+    intent = intent_result["intent"]
+
+    # 2. 求职信场景：从消息推断渠道（"先让用户选"的规则部分）
+    channel = _infer_channel(state.get("user_message", "")) if intent == "generate_cover_letter" else None
+
+    # 3. 路由决策（意图优先，规则引擎执行）
+    state_with_intent = dict(state)
+    state_with_intent["intent"] = intent
+    if channel:
+        state_with_intent["cover_letter_channel"] = channel
+    route = rule_based_route(state_with_intent)
+
+    plan = [route] if route != "end" else []
+    logger.info(f"[Node] Planner: intent={intent}, route={route}")
+
+    return {
+        "intent": intent,
+        "intent_reason": intent_result.get("reason", ""),
+        "cover_letter_channel": channel or state.get("cover_letter_channel", ""),
+        "route": route,
+        "route_reason": f"意图={intent}，路由={route}",
+        "execution_plan": plan,
+        "workflow_trace": [
+            trace_item(
+                "planner", "success",
+                input_summary=f"用户输入：{state.get('user_message', '')[:120]}",
+                output_summary=f"意图={intent} → 路由={route}",
+                artifacts={"intent": intent, "reason": intent_result.get("reason", ""), "plan": plan},
+            )
+        ],
+    }
 
 
 def _rule_based_review_check(state: GraphState) -> dict | None:
@@ -72,18 +127,7 @@ def _rule_based_review_check(state: GraphState) -> dict | None:
     }
 
 
-async def planner_node(state: GraphState, agents: dict) -> dict:
-    """Planner 节点：使用规则引擎决定路由（无需 LLM 调用）。"""
-    logger.info("[Node] Planner (Rule-based)")
-    from app.graph.edges import rule_based_route
-
-    route = rule_based_route(state)
-    return {
-        "route": route,
-        "route_reason": f"规则引擎路由: {route}",
-    }
-
-
+@traced("jd_analyzer", input_summary="分析职位描述")
 async def jd_analyzer_node(state: GraphState, agents: dict) -> dict:
     """JD Analyzer 节点：分析职位描述。"""
     logger.info("[Node] JD Analyzer")
@@ -123,11 +167,15 @@ async def jd_analyzer_node(state: GraphState, agents: dict) -> dict:
     logger.debug(f"[Node] JD Analyzer: JD 文本前 500 字符:\n{jd_text[:500]}")
 
     result = await agent.run(jd_text=jd_text)
-    return {"jd_analysis": result}
+    return {
+        "jd_analysis": result,
+        "jd_analyzed_version": state.get("jd_input_version", 0),
+    }
 
 
+@traced("profile_extractor", input_summary="提取简历画像")
 async def profile_extractor_node(state: GraphState, agents: dict) -> dict:
-    """Profile Extractor 节点：从简历提取候选人画像。"""
+    """Profile Extractor 节点：从简历提取候选人画像（支持增量合并）。"""
     logger.info("[Node] Profile Extractor")
     agent = agents["profile_extractor"]
 
@@ -172,7 +220,12 @@ async def profile_extractor_node(state: GraphState, agents: dict) -> dict:
     logger.info(f"[Node] Profile Extractor: 使用简历文本 ({len(resume_text)} 字符)")
     logger.debug(f"[Node] Profile Extractor: 简历文本前 500 字符:\n{resume_text[:500]}")
 
-    result = await agent.run(resume_text=resume_text)
+    # 增量合并：把已有画像传给 Agent，新材料合并进旧画像（v3）
+    existing_profile = state.get("profile") or {}
+    result = await agent.run(
+        resume_text=resume_text,
+        existing_profile=existing_profile,
+    )
 
     # 检查解析结果质量
     if result.get("_parse_error"):
@@ -180,9 +233,13 @@ async def profile_extractor_node(state: GraphState, agents: dict) -> dict:
     elif not result.get("name") and not result.get("skills"):
         logger.warning(f"[Node] Profile Extractor: 解析结果缺少关键字段 (name, skills)")
 
-    return {"profile": result}
+    return {
+        "profile": result,
+        "profile_analyzed_version": state.get("profile_input_version", 0),
+    }
 
 
+@traced("gap_analyzer", input_summary="对比 JD 与画像")
 async def gap_analyzer_node(state: GraphState, agents: dict) -> dict:
     """Gap Analyzer 节点：对比 JD 与画像。"""
     logger.info("[Node] Gap Analyzer")
@@ -203,9 +260,14 @@ async def gap_analyzer_node(state: GraphState, agents: dict) -> dict:
 
     agent = agents["gap_analyzer"]
     result = await agent.run(jd_analysis=jd, profile=profile)
-    return {"gap_analysis": result}
+    return {
+        "gap_analysis": result,
+        "gap_based_jd": state.get("jd_input_version", 0),
+        "gap_based_profile": state.get("profile_input_version", 0),
+    }
 
 
+@traced("content_generator", input_summary="生成简历内容")
 async def content_generator_node(state: GraphState, agents: dict) -> dict:
     """Content Generator 节点：生成简历内容。如果是迭代，附带评审改进建议。"""
     logger.info("[Node] Content Generator")
@@ -214,7 +276,10 @@ async def content_generator_node(state: GraphState, agents: dict) -> dict:
     # 检查是否有评审反馈需要改进
     review_result = state.get("review_result", {})
     user_instructions = ""
-    if review_result and review_result.get("suggestions"):
+    if state.get("intent") == "content_edit":
+        # content_edit 意图：用户消息即修改指令（v3）
+        user_instructions = state.get("user_message", "")
+    elif review_result and review_result.get("suggestions"):
         from app.graph.reflection import build_reflection_prompt
         user_instructions = build_reflection_prompt(review_result)
 
@@ -225,9 +290,15 @@ async def content_generator_node(state: GraphState, agents: dict) -> dict:
         user_instructions=user_instructions,
     )
     iterations = state.get("content_iterations", 0) + 1
-    return {"resume_content": result, "content_iterations": iterations}
+    return {
+        "resume_content": result,
+        "content_iterations": iterations,
+        "content_based_jd": state.get("jd_input_version", 0),
+        "content_based_profile": state.get("profile_input_version", 0),
+    }
 
 
+@traced("reviewer", input_summary="评审简历内容质量")
 async def reviewer_node(state: GraphState, agents: dict) -> dict:
     """Reviewer 节点：评审简历内容质量。
 
@@ -250,6 +321,7 @@ async def reviewer_node(state: GraphState, agents: dict) -> dict:
     return {"review_result": result}
 
 
+@traced("html_renderer", input_summary="生成渲染配置")
 async def html_renderer_node(state: GraphState, agents: dict) -> dict:
     """HTML Renderer 节点：生成渲染配置。"""
     logger.info("[Node] HTML Renderer")
@@ -260,6 +332,7 @@ async def html_renderer_node(state: GraphState, agents: dict) -> dict:
     return {"render_config": result}
 
 
+@traced("interview_qa", input_summary="生成面试题")
 async def interview_qa_node(state: GraphState, agents: dict) -> dict:
     """Interview Q&A 节点：生成面试题。如果是迭代，附带评审改进建议。"""
     logger.info("[Node] Interview Q&A")
@@ -279,9 +352,15 @@ async def interview_qa_node(state: GraphState, agents: dict) -> dict:
         user_instructions=user_instructions,
     )
     iterations = state.get("interview_iterations", 0) + 1
-    return {"interview_questions": result, "interview_iterations": iterations}
+    return {
+        "interview_questions": result,
+        "interview_iterations": iterations,
+        "interview_based_jd": state.get("jd_input_version", 0),
+        "interview_based_profile": state.get("profile_input_version", 0),
+    }
 
 
+@traced("interview_reviewer", input_summary="评审面试题质量")
 async def interview_reviewer_node(state: GraphState, agents: dict) -> dict:
     """Interview Reviewer 节点：评审面试题质量。"""
     logger.info("[Node] Interview Reviewer")
@@ -332,7 +411,7 @@ async def parallel_analysis_node(state: GraphState, agents: dict) -> dict:
             else:
                 merged["profile"] = {"_error": str(result), "name": "", "skills": []}
         elif isinstance(result, dict):
-            merged.update(result)
+            _merge_with_trace(merged, result)
             logger.info(f"[Node] Parallel Analysis ({name}) 成功")
 
     return merged
@@ -387,12 +466,49 @@ async def parallel_post_node(state: GraphState, agents: dict) -> dict:
                     "_review_error": True,
                 }
         elif isinstance(result, dict):
-            merged.update(result)
+            _merge_with_trace(merged, result)
             logger.info(f"[Node] Parallel Post ({name}) 成功")
 
     return merged
 
 
+def _merge_with_trace(merged: dict, result: dict) -> None:
+    """合并子节点返回值，workflow_trace 用 extend 累积（避免覆盖）。"""
+    trace = result.pop("workflow_trace", None)
+    merged.update(result)
+    if trace:
+        merged.setdefault("workflow_trace", []).extend(trace)
+
+
+@traced("question", input_summary="基于状态自由问答")
+async def question_node(state: GraphState, agents: dict) -> dict:
+    """Question 节点（v3）：基于当前会话状态自由回答，只读不写业务状态。"""
+    logger.info("[Node] Question")
+    agent = agents["question"]
+    result = await agent.run(
+        state=state,
+        user_message=state.get("user_message", ""),
+    )
+    return {"answer": result.get("answer", "")}
+
+
+@traced("cover_letter", input_summary="生成求职信/打招呼文案")
+async def cover_letter_node(state: GraphState, agents: dict) -> dict:
+    """Cover Letter 节点（v3）：生成求职信或招聘软件打招呼文案。"""
+    logger.info("[Node] Cover Letter")
+    agent = agents["cover_letter"]
+    result = await agent.run(
+        profile=state.get("profile", {}),
+        jd_analysis=state.get("jd_analysis", {}),
+        gap_analysis=state.get("gap_analysis", {}),
+        channel=state.get("cover_letter_channel", "email"),
+        user_instructions=state.get("user_message", ""),
+    )
+    result.setdefault("channel", state.get("cover_letter_channel", "email"))
+    return {"cover_letter": result}
+
+
+@traced("clarifier", input_summary="澄清需求")
 async def clarifier_node(state: GraphState, agents: dict) -> dict:
     """Clarifier 节点：智能检测缺失信息，生成澄清问题。
 
@@ -407,6 +523,24 @@ async def clarifier_node(state: GraphState, agents: dict) -> dict:
     # 判断是否多轮澄清
     clarification_history = state.get("clarification_history", [])
     is_multi_turn = len(clarification_history) > 0
+
+    # 求职信渠道选择（v3）：意图=generate_cover_letter 且渠道未定 → 直接给选项，不调 LLM
+    if state.get("intent") == "generate_cover_letter" and not state.get("cover_letter_channel"):
+        logger.info("[Node] Clarifier: 求职信渠道未选，给出选项")
+        question = "你想生成哪种文案？\n1. 招聘软件打招呼（简短，100 字以内）\n2. 正式求职信（邮件，150-300 字）"
+        history = list(clarification_history)
+        if is_multi_turn and history:
+            history[-1] = {**history[-1], "answer": state.get("user_message", "")}
+        history = history + [{"question": question, "detected_intent": "select_channel"}]
+        return {
+            "clarification_question": question,
+            "clarification_history": history,
+            "workflow_trace": [
+                trace_item("clarifier", "success",
+                           input_summary="求职信渠道选择",
+                           output_summary="询问用户选择渠道")
+            ],
+        }
 
     result = await agent.run(
         user_message=state.get("user_message", ""),

@@ -24,6 +24,7 @@ from app.graph.edges import (
 from app.graph.nodes import (
     clarifier_node,
     content_generator_node,
+    cover_letter_node,
     gap_analyzer_node,
     html_renderer_node,
     interview_qa_node,
@@ -33,6 +34,7 @@ from app.graph.nodes import (
     parallel_post_node,
     planner_node,
     profile_extractor_node,
+    question_node,
 )
 from app.graph.state import GraphState
 from app.llm import LLMProvider
@@ -109,6 +111,12 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     async def _clarifier(state: GraphState):
         return await clarifier_node(state, agents)
 
+    async def _question(state: GraphState):
+        return await question_node(state, agents)
+
+    async def _cover_letter(state: GraphState):
+        return await cover_letter_node(state, agents)
+
     # --- 构建图 ---
     graph = StateGraph(GraphState)
 
@@ -124,11 +132,13 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     graph.add_node("parallel_analysis", _parallel_analysis)
     graph.add_node("parallel_post", _parallel_post)
     graph.add_node("clarifier", _clarifier)
+    graph.add_node("question", _question)
+    graph.add_node("cover_letter", _cover_letter)
 
     # 入口
     graph.set_entry_point("planner")
 
-    # Planner 之后的条件边：根据规则引擎路由
+    # Planner 之后的条件边：意图/规则引擎路由
     graph.add_conditional_edges(
         "planner",
         route_after_planner,
@@ -141,6 +151,9 @@ def build_graph(llm: LLMProvider) -> StateGraph:
             "interview_qa": "interview_qa",
             "parallel_analysis": "parallel_analysis",
             "clarifier": "clarifier",
+            "question": "question",
+            "cover_letter": "cover_letter",
+            "end": END,
         },
     )
 
@@ -194,8 +207,18 @@ def build_graph(llm: LLMProvider) -> StateGraph:
             "profile_extractor": "profile_extractor",
             "gap_analyzer": "gap_analyzer",
             "content_generator": "content_generator",
+            "html_renderer": "html_renderer",
+            "interview_qa": "interview_qa",
+            "question": "question",
+            "cover_letter": "cover_letter",
             "end": END,
         },
     )
+
+    # Question → END（只读问答，不进入业务链路）
+    graph.add_edge("question", END)
+
+    # Cover Letter → END
+    graph.add_edge("cover_letter", END)
 
     return graph.compile()

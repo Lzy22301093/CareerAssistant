@@ -49,7 +49,11 @@ SYSTEM_PROMPT = """你是一个专业的简历解析助手。你的任务是从�
 1. skills 至少提取 5 个
 2. experience 按时间倒序排列
 3. 只返回 JSON，不要添加额外说明
-4. 如果简历文本中没有某个字段的信息，使用空数组或空字符串"""
+4. 如果简历文本中没有某个字段的信息，使用空数组或空字符串
+5. 如果提供了"已有画像"，必须进行**增量合并**：
+   - 新材料中的新经历/技能/项目 → 补充进对应字段（去重，避免重复项）
+   - 已有但新材料未提及的内容 → 保留，不要删除
+   - 同一公司/项目信息有冲突时，以新材料为准并保留另一份的关键信息"""
 
 
 class ProfileExtractorAgent(BaseAgent):
@@ -64,6 +68,7 @@ class ProfileExtractorAgent(BaseAgent):
 
     def build_messages(self, **kwargs) -> list[Message]:
         resume_text = kwargs.get("resume_text", "")
+        existing_profile = kwargs.get("existing_profile", {})
 
         # 记录传入的简历文本信息
         logger.info(f"[ProfileExtractor] 接收到简历文本: {len(resume_text)} 字符")
@@ -76,9 +81,18 @@ class ProfileExtractorAgent(BaseAgent):
             logger.warning(f"[ProfileExtractor] 简历文本过长 ({len(resume_text)} 字符)，截断到 {max_text_length} 字符")
             resume_text = resume_text[:max_text_length] + "\n\n... (文本过长，已截断)"
 
+        # 增量合并：已有画像存在时，让 LLM 合并而非覆盖（v3）
+        user_content = f"请解析以下简历：\n\n{resume_text}"
+        if existing_profile:
+            import json
+            user_content += (
+                f"\n\n已有画像（请增量合并，不要覆盖或删除已有内容）：\n"
+                f"{json.dumps(existing_profile, ensure_ascii=False, indent=2)}"
+            )
+
         return [
             Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
-            Message(role=Role.USER, content=f"请解析以下简历：\n\n{resume_text}"),
+            Message(role=Role.USER, content=user_content),
         ]
 
     def parse_response(self, content: str) -> dict:

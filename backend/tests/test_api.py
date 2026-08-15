@@ -165,8 +165,8 @@ class TestInterruptedRunPersistence:
         create_resp = await client.post("/api/sessions/")
         session_id = create_resp.json()["session_id"]
 
-        # 第一个调用（jd_analyzer）正常返回 JD，第二个调用（clarifier）抛异常，
-        # 模拟处理中途失败（status_code=400 → 不可重试，快速失败）
+        # 按消息内容区分调用：意图分类 → 正常；jd_analyzer → 正常；
+        # 其余（clarifier 等）→ 抛异常，模拟处理中途失败
         class FakeBadRequest(Exception):
             status_code = 400
 
@@ -178,7 +178,12 @@ class TestInterruptedRunPersistence:
 
             async def chat(self, messages, **kwargs):
                 self.calls += 1
-                if self.calls == 1:
+                content = " ".join(m.content for m in messages)
+                if "意图分类" in content:
+                    return Response(content=json.dumps({
+                        "intent": "upload_jd", "reason": "用户提供JD", "confidence": 0.9,
+                    }))
+                if "分析以下职位描述" in content:
                     return Response(content=json.dumps({
                         "job_title": "Python 开发工程师",
                         "company": "测试公司",

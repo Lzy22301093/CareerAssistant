@@ -15,6 +15,7 @@ from app.graph.nodes import (
     _build_session_state,
     clarifier_node,
     content_generator_node,
+    cover_letter_node,
     gap_analyzer_node,
     html_renderer_node,
     interview_qa_node,
@@ -24,6 +25,7 @@ from app.graph.nodes import (
     parallel_post_node,
     planner_node,
     profile_extractor_node,
+    question_node,
     reviewer_node,
 )
 from app.graph.reflection import PASS_SCORE
@@ -515,6 +517,54 @@ class TestNodes:
         result = await clarifier_node(state, agents)
         assert "clarification_question" in result
 
+    @pytest.mark.asyncio
+    async def test_clarifier_channel_selection(self):
+        """求职信渠道未选时，clarifier 直接给选项（不调 LLM）。"""
+        llm = MockLLM("{}")
+        agents = create_agents(llm)
+        state: GraphState = {
+            "intent": "generate_cover_letter",
+            "cover_letter_channel": "",
+            "user_message": "帮我写个求职信",
+        }
+        result = await clarifier_node(state, agents)
+        assert "文案" in result["clarification_question"]
+        assert llm.call_count == 0  # 未调用 LLM
+
+    @pytest.mark.asyncio
+    async def test_question_node(self):
+        """自由问答节点：返回 answer。"""
+        llm = MockLLM("你目前的画像中有 Python、FastAPI 技能，与岗位要求匹配度较高。")
+        agents = create_agents(llm)
+        state: GraphState = {
+            "user_message": "我匹配这个岗位吗",
+            "jd_analysis": {"job_title": "Python 工程师", "keywords": ["Python"]},
+            "profile": {"name": "张三", "skills": ["Python", "FastAPI"]},
+        }
+        result = await question_node(state, agents)
+        assert "answer" in result
+        assert "Python" in result["answer"]
+
+    @pytest.mark.asyncio
+    async def test_cover_letter_node(self):
+        """求职信节点：生成指定渠道的文案。"""
+        llm = MockLLM(json.dumps({
+            "channel": "email", "subject": "应聘 Python 工程师",
+            "body": "您好，我有 5 年 Python 开发经验，期待面试机会。",
+            "tone": "professional", "highlights": ["5年Python经验"],
+        }, ensure_ascii=False))
+        agents = create_agents(llm)
+        state: GraphState = {
+            "jd_analysis": {"job_title": "Python 工程师", "keywords": ["Python"]},
+            "profile": {"name": "张三", "skills": ["Python"], "experience": []},
+            "gap_analysis": {"overall_score": 80},
+            "cover_letter_channel": "email",
+            "user_message": "帮我写个求职信",
+        }
+        result = await cover_letter_node(state, agents)
+        assert result["cover_letter"]["channel"] == "email"
+        assert "body" in result["cover_letter"]
+
 
 # === 完整图测试 ===
 
@@ -586,3 +636,79 @@ class TestWorkflow:
         })
         assert result.get("route") == "clarifier"
         assert result.get("clarification_question") is not None
+
+    @pytest.mark.asyncio
+    async def test_incremental_jd_change_reanalyzes(self):
+        """增量编辑（v3）：换岗位 → JD/差距/内容/面试题全部级联重算。"""
+        llm = _create_mock_llm()
+        graph = build_graph(llm)
+
+        # 第一轮：上传 JD A + 简历
+        r1 = await graph.ainvoke({
+            "user_message": "岗位描述：Python 工程师",
+            "session_id": "test-incr-1",
+            "jd_text": "Python 工程师，要求 3 年经验",
+            "resume_text": "张三，Python 工程师，3年经验",
+            "jd_input_version": 1,
+            "profile_input_version": 1,
+        })
+        assert r1.get("jd_analyzed_version") == 1
+        assert r1.get("gap_based_jd") == 1
+        assert r1.get("content_based_jd") == 1
+        assert r1.get("interview_based_jd") == 1
+
+        # 第二轮：换 JD B（jd_input_version=2），其余状态保持（含版本字段，模拟会话持久化）
+        r2 = await graph.ainvoke({
+            "user_message": "岗位描述：项目经理",
+            "session_id": "test-incr-2",
+            "jd_text": "项目经理，要求 5 年管理经验",
+            "resume_text": "",
+            "jd_analysis": r1.get("jd_analysis", {}),
+            "profile": r1.get("profile", {}),
+            "gap_analysis": r1.get("gap_analysis", {}),
+            "resume_content": r1.get("resume_content", {}),
+            "render_config": r1.get("render_config", {}),
+            "jd_input_version": 2,
+            "profile_input_version": 1,
+            "jd_analyzed_version": 1,
+            "profile_analyzed_version": 1,
+            "gap_based_jd": 1, "gap_based_profile": 1,
+            "content_based_jd": 1, "content_based_profile": 1,
+            "interview_based_jd": 1, "interview_based_profile": 1,
+        })
+        # JD 重算：基于新版本
+        assert r2.get("jd_analyzed_version") == 2
+        # 级联：gap/content/interview 全部基于新 JD 版本重算
+        assert r2.get("gap_based_jd") == 2
+        assert r2.get("content_based_jd") == 2
+        assert r2.get("interview_based_jd") == 2
+
+    @pytest.mark.asyncio
+    async def test_incremental_no_change_skips(self):
+        """增量编辑（v3）：输入未变化时不重跑分析。"""
+        llm = _create_mock_llm()
+        graph = build_graph(llm)
+
+        # 全量数据就绪且版本一致
+        r = await graph.ainvoke({
+            "user_message": "帮我优化简历",
+            "session_id": "test-skip",
+            "jd_text": "",
+            "resume_text": "",
+            "jd_analysis": {"job_title": "Python 工程师", "keywords": ["Python"]},
+            "profile": {"name": "张三", "skills": ["Python"]},
+            "gap_analysis": {"overall_score": 80},
+            "resume_content": {"sections": [{"title": "技能", "content": "Python"}]},
+            "render_config": {"template": "modern"},
+            "interview_questions": {"questions": []},
+            "jd_input_version": 1,
+            "profile_input_version": 1,
+            "jd_analyzed_version": 1,
+            "profile_analyzed_version": 1,
+            "gap_based_jd": 1, "gap_based_profile": 1,
+            "content_based_jd": 1, "content_based_profile": 1,
+            "interview_based_jd": 1, "interview_based_profile": 1,
+        })
+        # 未触发任何重算（版本保持 1）
+        assert r.get("jd_analyzed_version", 1) == 1
+        assert r.get("gap_based_jd", 1) == 1

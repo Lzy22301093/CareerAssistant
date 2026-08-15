@@ -11,6 +11,8 @@ from app.agents.interview_reviewer import InterviewReviewerAgent
 from app.agents.planner import PlannerAgent
 from app.agents.reviewer import ReviewerAgent
 from app.agents.clarifier import ClarifierAgent
+from app.agents.question import QuestionAgent
+from app.agents.cover_letter import CoverLetterAgent
 
 __all__ = [
     "BaseAgent",
@@ -24,6 +26,8 @@ __all__ = [
     "PlannerAgent",
     "ReviewerAgent",
     "ClarifierAgent",
+    "QuestionAgent",
+    "CoverLetterAgent",
     "create_agents",
 ]
 
@@ -81,4 +85,6 @@ def create_agents(llm) -> dict[str, BaseAgent]:
         "planner": PlannerAgent(llm),
         "reviewer": ReviewerAgent(llm, model=fast_model),
         "clarifier": ClarifierAgent(llm, model=fast_model),
+        "question": QuestionAgent(llm, model=fast_model),
+        "cover_letter": CoverLetterAgent(llm),
     }
