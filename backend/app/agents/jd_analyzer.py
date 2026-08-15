@@ -37,6 +37,10 @@ class JDAnalyzerAgent(BaseAgent):
     name = "jd_analyzer"
     description = "分析职位描述，提取结构化信息"
 
+    # 提取类 Agent：低温度保证稳定，输出较小
+    temperature = 0.2
+    max_tokens = 2048
+
     def build_messages(self, **kwargs) -> list[Message]:
         jd_text = kwargs.get("jd_text", "")
 

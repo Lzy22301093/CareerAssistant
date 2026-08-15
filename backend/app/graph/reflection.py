@@ -8,8 +8,8 @@ from typing import Any
 # 评审通过阈值
 PASS_SCORE = 75
 
-# 最大迭代次数
-MAX_ITERATIONS = 3
+# 最大迭代次数（性能优化 B3：由 3 降为 2，每轮多 2 次 LLM 调用约 1-2 分钟）
+MAX_ITERATIONS = 2
 
 
 @dataclass

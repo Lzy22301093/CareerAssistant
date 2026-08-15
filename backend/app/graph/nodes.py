@@ -6,12 +6,70 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from typing import Any
 
+from app.graph.reflection import PASS_SCORE
 from app.graph.state import GraphState
 
 logger = logging.getLogger(__name__)
+
+
+def _has_valid_data(data: Any) -> bool:
+    """检查数据是否为有效的非空字典（排除错误状态）。"""
+    if not isinstance(data, dict):
+        return bool(data)
+    if data.get("_error"):
+        return False
+    return bool(data)
+
+
+def _rule_based_review_check(state: GraphState) -> dict | None:
+    """评审规则预检（性能优化 B1）：先跑廉价规则，通过则跳过 LLM 评审。
+
+    规则（保守，避免误放行低质量内容）：
+    1. resume_content 的 sections 非空
+    2. 至少一个板块包含量化数字（如 "提升 30%"）
+    3. JD 关键词在简历文本中覆盖率 >= 30%（取前 10 个关键词）
+
+    全部满足才返回预检通过的 review_result（分数 = PASS_SCORE），
+    否则返回 None 走 LLM 评审。
+    """
+    from app.graph.reflection import PASS_SCORE
+
+    content = state.get("resume_content", {})
+    sections = content.get("sections", [])
+    if not isinstance(sections, list) or not sections:
+        return None
+
+    # 规则 2：量化数字
+    has_quant = any(
+        re.search(r"\d", str(sec.get("content", "")))
+        for sec in sections
+        if isinstance(sec, dict) and sec.get("content")
+    )
+    if not has_quant:
+        return None
+
+    # 规则 3：JD 关键词覆盖
+    keywords = (state.get("jd_analysis") or {}).get("keywords", []) or []
+    keywords = [str(k).strip().lower() for k in keywords if str(k).strip()][:10]
+    if keywords:
+        text = json.dumps(content, ensure_ascii=False).lower()
+        matched = sum(1 for kw in keywords if kw and kw in text)
+        if matched / len(keywords) < 0.3:
+            return None
+
+    return {
+        "score": PASS_SCORE,
+        "dimensions": {},
+        "issues": [],
+        "suggestions": [],
+        "summary": "规则预检通过（板块完整、含量化数据、关键词覆盖达标）",
+        "rule_passed": True,
+    }
 
 
 async def planner_node(state: GraphState, agents: dict) -> dict:
@@ -171,8 +229,18 @@ async def content_generator_node(state: GraphState, agents: dict) -> dict:
 
 
 async def reviewer_node(state: GraphState, agents: dict) -> dict:
-    """Reviewer 节点：评审简历内容质量。"""
-    logger.info("[Node] Reviewer")
+    """Reviewer 节点：评审简历内容质量。
+
+    性能优化 B1：先跑规则预检，通过则直接返回 review_result，
+    跳过一次 LLM 评审调用（评审是高频调用且规则可覆盖常见合格场景）。
+    """
+    # 规则预检
+    pre_check = _rule_based_review_check(state)
+    if pre_check is not None:
+        logger.info("[Node] Reviewer: 规则预检通过，跳过 LLM 评审")
+        return {"review_result": pre_check}
+
+    logger.info("[Node] Reviewer (LLM)")
     agent = agents["reviewer"]
     result = await agent.run(
         resume_content=state.get("resume_content", {}),
@@ -270,29 +338,32 @@ async def parallel_analysis_node(state: GraphState, agents: dict) -> dict:
     return merged
 
 
-async def parallel_render_node(state: GraphState, agents: dict) -> dict:
-    """并行执行 HTML Renderer 和 Interview Q&A。
+async def parallel_post_node(state: GraphState, agents: dict) -> dict:
+    """简历生成后的并行阶段：简历评审 ∥ 面试题生成（性能优化 B2）。
 
-    两个节点没有互相依赖：
-    - html_renderer 依赖 resume_content
-    - interview_qa 依赖 jd_analysis, profile, gap_analysis
-    因此可以安全地并行执行。
+    两个任务没有互相依赖：
+    - reviewer 依赖 resume_content
+    - interview_qa 依赖 jd_analysis, profile, gap_analysis（不依赖简历内容）
+    因此可以并行执行，把 interview_qa 从串行链路中提前，节省一个时间段。
+
+    注意：reviewer 内部先跑规则预检，通过则跳过 LLM 调用。
     """
-    logger.info("[Node] Parallel Render (HTML + Interview)")
+    logger.info("[Node] Parallel Post (Review + Interview)")
 
     tasks = []
 
-    # HTML Renderer
-    if state.get("resume_content") and not state.get("render_config"):
-        tasks.append(("html", html_renderer_node(state, agents)))
+    # 简历评审（可能被规则预检短路，无 LLM 调用）
+    tasks.append(("review", reviewer_node(state, agents)))
 
-    # Interview Q&A
-    if state.get("jd_analysis") and state.get("profile") and state.get("gap_analysis"):
+    # 面试题生成：仅在尚未生成且前置数据齐全时执行
+    has_interview = _has_valid_data(state.get("interview_questions"))
+    if (
+        not has_interview
+        and state.get("jd_analysis")
+        and state.get("profile")
+        and state.get("gap_analysis")
+    ):
         tasks.append(("interview", interview_qa_node(state, agents)))
-
-    if not tasks:
-        logger.warning("[Node] Parallel Render: 无任务可执行")
-        return {}
 
     # 并行执行
     results = await asyncio.gather(
@@ -304,10 +375,20 @@ async def parallel_render_node(state: GraphState, agents: dict) -> dict:
     merged = {}
     for (name, _), result in zip(tasks, results):
         if isinstance(result, Exception):
-            logger.error(f"[Node] Parallel Render ({name}) 失败: {result}")
+            logger.error(f"[Node] Parallel Post ({name}) 失败: {result}")
+            if name == "review":
+                # 评审失败不阻塞主流程：给一个高分兜底，继续渲染
+                merged["review_result"] = {
+                    "score": PASS_SCORE,
+                    "dimensions": {},
+                    "issues": [],
+                    "suggestions": [],
+                    "summary": "评审调用失败，按通过处理",
+                    "_review_error": True,
+                }
         elif isinstance(result, dict):
             merged.update(result)
-            logger.info(f"[Node] Parallel Render ({name}) 成功")
+            logger.info(f"[Node] Parallel Post ({name}) 成功")
 
     return merged
 

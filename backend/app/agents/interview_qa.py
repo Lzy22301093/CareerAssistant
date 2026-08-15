@@ -41,9 +41,11 @@ class InterviewQAAgent(BaseAgent):
     description = "生成针对性面试题"
 
     def build_messages(self, **kwargs) -> list[Message]:
-        jd_analysis = kwargs.get("jd_analysis", {})
-        profile = kwargs.get("profile", {})
-        gap_analysis = kwargs.get("gap_analysis", {})
+        from app.tools.context import compact_gap, compact_jd, compact_profile
+
+        jd_analysis = compact_jd(kwargs.get("jd_analysis", {}))
+        profile = compact_profile(kwargs.get("profile", {}))
+        gap_analysis = compact_gap(kwargs.get("gap_analysis", {}))
         user_instructions = kwargs.get("user_instructions", "")
 
         user_content = (

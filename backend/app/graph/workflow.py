@@ -2,7 +2,8 @@
 
 图结构设计：
 - 使用规则引擎进行路由决策（无需 LLM 调用）
-- 支持并行执行：JD Analyzer + Profile Extractor、HTML Renderer + Interview Q&A
+- 支持并行执行：JD Analyzer + Profile Extractor（parallel_analysis）、
+  简历评审 + 面试题生成（parallel_post）
 - 只有当 jd_analysis 和 profile 都存在时，才能进入 gap_analyzer
 """
 
@@ -15,10 +16,9 @@ from langgraph.graph import END, StateGraph
 from app.agents import create_agents
 from app.graph.edges import (
     route_after_planner,
-    route_after_reviewer,
     route_after_clarifier,
     route_after_parallel_analysis,
-    route_after_parallel_render,
+    route_after_parallel_post,
     route_after_interview_review,
 )
 from app.graph.nodes import (
@@ -30,10 +30,9 @@ from app.graph.nodes import (
     interview_reviewer_node,
     jd_analyzer_node,
     parallel_analysis_node,
-    parallel_render_node,
+    parallel_post_node,
     planner_node,
     profile_extractor_node,
-    reviewer_node,
 )
 from app.graph.state import GraphState
 from app.llm import LLMProvider
@@ -92,9 +91,6 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     async def _content_generator(state: GraphState):
         return await content_generator_node(state, agents)
 
-    async def _reviewer(state: GraphState):
-        return await reviewer_node(state, agents)
-
     async def _html_renderer(state: GraphState):
         return await html_renderer_node(state, agents)
 
@@ -107,8 +103,8 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     async def _parallel_analysis(state: GraphState):
         return await parallel_analysis_node(state, agents)
 
-    async def _parallel_render(state: GraphState):
-        return await parallel_render_node(state, agents)
+    async def _parallel_post(state: GraphState):
+        return await parallel_post_node(state, agents)
 
     async def _clarifier(state: GraphState):
         return await clarifier_node(state, agents)
@@ -122,12 +118,11 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     graph.add_node("profile_extractor", _profile_extractor)
     graph.add_node("gap_analyzer", _gap_analyzer)
     graph.add_node("content_generator", _content_generator)
-    graph.add_node("reviewer", _reviewer)
     graph.add_node("html_renderer", _html_renderer)
     graph.add_node("interview_qa", _interview_qa)
     graph.add_node("interview_reviewer", _interview_reviewer)
     graph.add_node("parallel_analysis", _parallel_analysis)
-    graph.add_node("parallel_render", _parallel_render)
+    graph.add_node("parallel_post", _parallel_post)
     graph.add_node("clarifier", _clarifier)
 
     # 入口
@@ -145,7 +140,6 @@ def build_graph(llm: LLMProvider) -> StateGraph:
             "html_renderer": "html_renderer",
             "interview_qa": "interview_qa",
             "parallel_analysis": "parallel_analysis",
-            "parallel_render": "parallel_render",
             "clarifier": "clarifier",
         },
     )
@@ -162,22 +156,26 @@ def build_graph(llm: LLMProvider) -> StateGraph:
         {"planner": "planner"},
     )
 
-    # Content Generator → Reviewer（评审）
-    graph.add_edge("content_generator", "reviewer")
+    # Content Generator → Parallel Post（简历评审 ∥ 面试题生成）
+    graph.add_edge("content_generator", "parallel_post")
 
-    # Reviewer 之后的条件边：迭代 or 继续
+    # Parallel Post 之后的条件边：评审通过 → HTML 渲染；不通过 → 迭代
     graph.add_conditional_edges(
-        "reviewer",
-        route_after_reviewer,
+        "parallel_post",
+        route_after_parallel_post,
         {
             "iterate": "content_generator",
             "proceed": "html_renderer",
         },
     )
 
-    # HTML Renderer → Interview Q&A → Interview Reviewer（评审循环）→ 结束
-    graph.add_edge("html_renderer", "interview_qa")
+    # HTML Renderer → Interview Reviewer（面试题已在 parallel_post 生成）
+    graph.add_edge("html_renderer", "interview_reviewer")
+
+    # Interview Q&A → Interview Reviewer（评审循环 / 兜底补生成）
     graph.add_edge("interview_qa", "interview_reviewer")
+
+    # Interview Reviewer 之后的条件边：评审通过 → 结束；不通过 → 迭代
     graph.add_conditional_edges(
         "interview_reviewer",
         route_after_interview_review,
@@ -185,13 +183,6 @@ def build_graph(llm: LLMProvider) -> StateGraph:
             "iterate": "interview_qa",
             "proceed": END,
         },
-    )
-
-    # 并行渲染 → 面试题评审（评审循环后结束）
-    graph.add_conditional_edges(
-        "parallel_render",
-        route_after_parallel_render,
-        {"interview_reviewer": "interview_reviewer"},
     )
 
     # Clarifier 之后的条件边：继续处理 or 等待用户回复

@@ -58,6 +58,10 @@ class ProfileExtractorAgent(BaseAgent):
     name = "profile_extractor"
     description = "从简历提取候选人画像"
 
+    # 提取类 Agent：低温度保证稳定，输出较小
+    temperature = 0.2
+    max_tokens = 2048
+
     def build_messages(self, **kwargs) -> list[Message]:
         resume_text = kwargs.get("resume_text", "")
 

@@ -125,6 +125,7 @@ export interface SessionDetail {
   gap_analysis?: GapAnalysis
   resume_content?: ResumeContent
   render_config: RenderConfig
+  interview_questions?: { questions: InterviewQuestion[] }
   messages: MessageResponse[]
   created_at: string
   updated_at: string

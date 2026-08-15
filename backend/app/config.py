@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_base_url: str = "https://token-plan-cn.xiaomimimo.com/v1"
     llm_model: str = "mimo-v2.5-pro"
+    # 快速模型：用于提取类 Agent（JD/画像/差距/评审/澄清），
+    # 为空时回退到 llm_model。
+    fast_model: str = ""
 
     # JWT Auth（同样必须从环境注入，空值在 AuthService 使用时抛出明确错误）
     jwt_secret_key: str = ""

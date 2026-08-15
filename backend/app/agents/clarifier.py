@@ -82,6 +82,10 @@ class ClarifierAgent(BaseAgent):
     name = "clarifier"
     description = "智能澄清与引导"
 
+    # 对话类 Agent：输出短小，低温度保证稳定
+    temperature = 0.3
+    max_tokens = 1024
+
     def build_messages(self, **kwargs) -> list[Message]:
         user_message = kwargs.get("user_message", "")
         session_state = kwargs.get("session_state", {})

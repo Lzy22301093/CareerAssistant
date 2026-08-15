@@ -111,18 +111,16 @@ def rule_based_route(state: GraphState) -> str:
         logger.info("[Rule] 差距分析完成 → 生成简历内容")
         return "content_generator"
 
-    # === 规则 8：简历内容生成完成，渲染和面试题可以并行 ===
+    # === 规则 8：简历内容生成完成 → 渲染（面试题在 parallel_post 阶段并行生成）===
     if has_content:
         need_render = not has_render
         need_interview = not has_interview
-        if need_render and need_interview:
-            logger.info("[Rule] 简历内容完成 → 并行渲染和生成面试题")
-            return "parallel_render"
         if need_render:
             logger.info("[Rule] 简历内容完成 → 渲染 HTML")
             return "html_renderer"
         if need_interview:
-            logger.info("[Rule] 渲染完成 → 生成面试题")
+            # 兜底：parallel_post 未跑到（如流程中断恢复），单独补生成面试题
+            logger.info("[Rule] 渲染完成 → 补生成面试题")
             return "interview_qa"
 
     # === 规则 9：所有数据都齐全，询问用户是否需要调整 ===
@@ -149,7 +147,6 @@ def route_after_planner(state: GraphState) -> str:
         "interview_qa": "interview_qa",
         "clarifier": "clarifier",
         "parallel_analysis": "parallel_analysis",
-        "parallel_render": "parallel_render",
     }
     return route_map.get(route, "clarifier")
 
@@ -160,10 +157,22 @@ def route_after_parallel_analysis(state: GraphState) -> str:
     return "planner"
 
 
-def route_after_parallel_render(state: GraphState) -> str:
-    """并行渲染之后的路由：进入面试题评审。"""
-    logger.info("[Edge] Parallel Render → Interview Reviewer")
-    return "interview_reviewer"
+def route_after_parallel_post(state: GraphState) -> str:
+    """parallel_post 之后的路由：评审通过 → HTML 渲染；不通过 → 回到内容生成迭代。"""
+    review = state.get("review_result", {})
+    iteration = state.get("content_iterations", 0)
+
+    result = reflect(review, iteration)
+
+    if result.action == "iterate":
+        logger.info(
+            f"[Edge] Post-review score {result.score}, iteration {iteration}, "
+            f"iterating: {result.reason}"
+        )
+        return "iterate"
+
+    logger.info(f"[Edge] Post-review score {result.score}, proceeding: {result.reason}")
+    return "proceed"
 
 
 def route_after_reviewer(state: GraphState) -> str:

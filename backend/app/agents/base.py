@@ -43,10 +43,25 @@ class BaseAgent(ABC):
     description: str = ""
     tools: list[Tool] = []
 
-    def __init__(self, llm: LLMProvider, tools: list[Tool] | None = None):
+    # 按 Agent 类型可覆盖的调用参数（性能优化 A2）：
+    # - temperature: 提取类用低值保证稳定，生成类用高值保证多样性
+    # - max_tokens: 提取类输出小，调小可显著降低生成耗时
+    # - model: 指定使用的模型（如快速模型），None 表示用 provider 默认模型
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    model: str | None = None
+
+    def __init__(
+        self,
+        llm: LLMProvider,
+        tools: list[Tool] | None = None,
+        model: str | None = None,
+    ):
         self.llm = llm
         if tools is not None:
             self.tools = list(tools)
+        if model is not None:
+            self.model = model
 
     @abstractmethod
     def build_messages(self, **kwargs) -> list[Message]:
@@ -139,7 +154,13 @@ class BaseAgent(ABC):
 
         for iteration in range(TOOL_LOOP_MAX_ITERATIONS + 1):
             response = await asyncio.wait_for(
-                self._call_llm(messages, tools=tool_defs or None),
+                self._call_llm(
+                    messages,
+                    tools=tool_defs or None,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    model=self.model,
+                ),
                 timeout=AGENT_TIMEOUT,
             )
 

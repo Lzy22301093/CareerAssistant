@@ -62,9 +62,10 @@ class OpenAIProvider:
         tools: list[ToolDefinition] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        model: str | None = None,
     ) -> Response:
         kwargs: dict = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": self._convert_messages(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,

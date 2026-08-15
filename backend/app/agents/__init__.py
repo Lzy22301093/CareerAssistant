@@ -36,24 +36,33 @@ def create_agents(llm) -> dict[str, BaseAgent]:
     - interview_qa: question_bank（面试题库检索）
     - content_generator: best_practices / keyword_optimizer / template_search
 
+    模型分层（性能优化）：
+    - 提取/评审/澄清类 Agent 使用快速模型（settings.fast_model，未配置则回退主模型），
+      低 temperature + 小 max_tokens，任务简单但调用频繁
+    - 生成类 Agent 使用主模型，保证内容质量
+
     Args:
         llm: LLMProvider 实例。
 
     Returns:
         字典，键为 Agent 名称，值为 Agent 实例。
     """
-    # 工具在函数内延迟导入，避免模块加载时的循环依赖和开销
+    # 工具与配置在函数内延迟导入，避免模块加载时的循环依赖和开销
+    from app.config import settings
     from app.rag.service import RAGService
     from app.tools.analysis_tools import BestPracticesTool, KeywordOptimizerTool, SimilarCasesTool
     from app.tools.knowledge_tools import QuestionBankTool
     from app.tools.render_tools import TemplateSearchTool
 
+    fast_model = settings.fast_model or None
+
     return {
-        "jd_analyzer": JDAnalyzerAgent(llm),
-        "profile_extractor": ProfileExtractorAgent(llm),
+        "jd_analyzer": JDAnalyzerAgent(llm, model=fast_model),
+        "profile_extractor": ProfileExtractorAgent(llm, model=fast_model),
         "gap_analyzer": GapAnalyzerAgent(
             llm,
             tools=[SimilarCasesTool(rag_service=RAGService())],
+            model=fast_model,
         ),
         "content_generator": ContentGeneratorAgent(
             llm,
@@ -68,8 +77,8 @@ def create_agents(llm) -> dict[str, BaseAgent]:
             llm,
             tools=[QuestionBankTool(llm_provider=llm)],
         ),
-        "interview_reviewer": InterviewReviewerAgent(llm),
+        "interview_reviewer": InterviewReviewerAgent(llm, model=fast_model),
         "planner": PlannerAgent(llm),
-        "reviewer": ReviewerAgent(llm),
-        "clarifier": ClarifierAgent(llm),
+        "reviewer": ReviewerAgent(llm, model=fast_model),
+        "clarifier": ClarifierAgent(llm, model=fast_model),
     }

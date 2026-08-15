@@ -20,6 +20,8 @@ from app.graph.nodes import (
     interview_qa_node,
     interview_reviewer_node,
     jd_analyzer_node,
+    parallel_analysis_node,
+    parallel_post_node,
     planner_node,
     profile_extractor_node,
     reviewer_node,
@@ -377,6 +379,68 @@ class TestNodes:
         result = await reviewer_node(state, agents)
         assert "review_result" in result
         assert result["review_result"]["score"] == 82
+
+    @pytest.mark.asyncio
+    async def test_reviewer_node_rule_precheck_skips_llm(self):
+        """规则预检通过（板块完整+量化+关键词覆盖）时跳过 LLM 评审。"""
+        llm = MockLLM(SAMPLE_REVIEW_FAIL)  # 若被误调用会返回低分
+        agents = create_agents(llm)
+        state: GraphState = {
+            "resume_content": {"sections": [{"title": "工作经历", "content": "主导重构，响应时间降低 30%"}]},
+            "jd_analysis": {"keywords": ["重构", "响应时间"]},
+        }
+        result = await reviewer_node(state, agents)
+        assert result["review_result"].get("rule_passed") is True
+        assert llm.call_count == 0  # 未调用 LLM
+
+    @pytest.mark.asyncio
+    async def test_reviewer_node_rule_precheck_not_passed(self):
+        """无量化数字时规则预检不通过，走 LLM 评审。"""
+        llm = MockLLM(SAMPLE_REVIEW_PASS)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "resume_content": {"sections": [{"title": "工作经历", "content": "负责系统开发"}]},
+            "jd_analysis": {"keywords": ["重构"]},
+        }
+        result = await reviewer_node(state, agents)
+        assert result["review_result"].get("rule_passed") is not True
+        assert llm.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_parallel_post_node_parallel_review_and_interview(self):
+        """parallel_post：评审与面试题并行产出；规则预检通过时只调 1 次 LLM。"""
+        llm = MockLLM("{}")
+        llm.when("生成面试题", SAMPLE_INTERVIEW)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "resume_content": {"sections": [{"title": "技能", "content": "Python 3 年经验"}]},
+            "jd_analysis": {"job_title": "Python 工程师", "keywords": ["Python"]},
+            "profile": {"name": "张三"},
+            "gap_analysis": {"overall_score": 80},
+        }
+        result = await parallel_post_node(state, agents)
+        assert result["review_result"].get("rule_passed") is True
+        assert "interview_questions" in result
+        assert llm.call_count == 1  # 只有面试题生成一次调用
+
+    @pytest.mark.asyncio
+    async def test_parallel_post_node_interview_not_repeated(self):
+        """评审迭代时面试题不重复生成。"""
+        llm = MockLLM("{}")
+        llm.when("生成面试题", SAMPLE_INTERVIEW)
+        llm.when("评审简历内容", SAMPLE_REVIEW_FAIL)
+        agents = create_agents(llm)
+        state: GraphState = {
+            "resume_content": {"sections": [{"title": "技能", "content": "Python"}]},  # 无数字 → 走 LLM 评审
+            "jd_analysis": {"job_title": "Python 工程师", "keywords": ["Python"]},
+            "profile": {"name": "张三"},
+            "gap_analysis": {"overall_score": 80},
+            "interview_questions": {"questions": [{"question": "已有题目"}]},  # 已存在
+        }
+        result = await parallel_post_node(state, agents)
+        # 面试题已存在 → 不重复生成，只做 LLM 评审
+        assert llm.call_count == 1
+        assert "interview_questions" not in result
 
     @pytest.mark.asyncio
     async def test_html_renderer_node(self):

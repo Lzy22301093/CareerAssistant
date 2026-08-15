@@ -48,10 +48,16 @@ class ReviewerAgent(BaseAgent):
     name = "reviewer"
     description = "评审简历质量"
 
+    # 提取/评审类 Agent：低温度保证稳定，输出较小
+    temperature = 0.2
+    max_tokens = 2048
+
     def build_messages(self, **kwargs) -> list[Message]:
-        resume_content = kwargs.get("resume_content", {})
-        jd_analysis = kwargs.get("jd_analysis", {})
-        profile = kwargs.get("profile", {})
+        from app.tools.context import compact_jd, compact_profile, compact_resume_content
+
+        resume_content = compact_resume_content(kwargs.get("resume_content", {}))
+        jd_analysis = compact_jd(kwargs.get("jd_analysis", {}))
+        profile = compact_profile(kwargs.get("profile", {}))
 
         user_content = (
             f"目标职位分析：\n{json.dumps(jd_analysis, ensure_ascii=False, indent=2)}\n\n"

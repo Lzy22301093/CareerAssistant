@@ -42,9 +42,15 @@ class GapAnalyzerAgent(BaseAgent):
     name = "gap_analyzer"
     description = "分析 JD 与候选人画像的匹配度"
 
+    # 提取类 Agent：低温度保证稳定，输出较小
+    temperature = 0.2
+    max_tokens = 2048
+
     def build_messages(self, **kwargs) -> list[Message]:
-        jd_analysis = kwargs.get("jd_analysis", {})
-        profile = kwargs.get("profile", {})
+        from app.tools.context import compact_jd, compact_profile
+
+        jd_analysis = compact_jd(kwargs.get("jd_analysis", {}))
+        profile = compact_profile(kwargs.get("profile", {}))
         return [
             Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
             Message(

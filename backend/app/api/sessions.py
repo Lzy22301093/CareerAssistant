@@ -298,47 +298,44 @@ async def send_message(session_id: str, request: MessageRequest):
             # 发送开始事件
             yield _sse_event("start", {"message": "正在处理..."})
 
-            # 执行 Graph（复用全局缓存图，避免每条消息重建；加整图总超时兜底）
+            # 执行 Graph（流式：每完成一个节点立即推送进度与产物，带整图总超时兜底）
             llm = create_llm_provider()
             graph = get_graph(llm)
-            result = await asyncio.wait_for(
-                graph.ainvoke(graph_state),
-                timeout=settings.graph_timeout,
-            )
+
+            merged_updates: dict[str, Any] = {}
+            async for chunk in _graph_stream(graph, graph_state, settings.graph_timeout):
+                # chunk 形如 {"node_name": {字段: 值, ...}}
+                for node_name, updates in chunk.items():
+                    label = _NODE_LABELS.get(node_name, node_name)
+                    yield _sse_event("progress", {
+                        "node": node_name,
+                        "message": f"正在{label}…",
+                    })
+                    # 实时推送该节点产出的关键数据
+                    for key, event_name in _NODE_EVENT_MAP.items():
+                        if updates.get(key):
+                            yield _sse_event(event_name, updates[key])
+                    merged_updates.update(updates or {})
+
+            # updates 模式只返回增量，合并初始状态得到最终结果
+            result = dict(graph_state)
+            result.update(merged_updates)
 
             # 更新会话状态
             updates = _build_session_updates(session, result)
             await store.update(session_id, updates)
 
-            # 发送各阶段结果
+            # 发送路由信息（若本轮产生）
             if result.get("route"):
                 yield _sse_event("route", {
                     "route": result["route"],
                     "reason": result.get("route_reason", ""),
                 })
 
-            if result.get("jd_analysis"):
-                yield _sse_event("jd_analysis", result["jd_analysis"])
-
-            if result.get("profile"):
-                yield _sse_event("profile", result["profile"])
-
-            if result.get("gap_analysis"):
-                yield _sse_event("gap_analysis", result["gap_analysis"])
-
-            if result.get("resume_content"):
-                yield _sse_event("resume_content", result["resume_content"])
-
-            if result.get("render_config"):
-                yield _sse_event("render_config", result["render_config"])
-
-            if result.get("interview_questions"):
-                yield _sse_event("interview_questions", result["interview_questions"])
-
-            if result.get("clarification_question"):
-                yield _sse_event("clarification", {
-                    "question": result["clarification_question"],
-                })
+            # 兜底推送：若某结果没在流式阶段推送（如并行节点合并后字段缺失），这里补齐
+            for key, event_name in _NODE_EVENT_MAP.items():
+                if result.get(key) and not merged_updates.get(key):
+                    yield _sse_event(event_name, result[key])
 
             # 记录助手回复
             assistant_content = _build_assistant_message(result)
@@ -472,6 +469,56 @@ async def delete_session(session_id: str):
 
 
 # === 辅助函数 ===
+
+# 节点 → 用户可见的进度文案（流式推送用）
+_NODE_LABELS = {
+    "planner": "规划任务",
+    "jd_analyzer": "分析职位描述",
+    "profile_extractor": "提取简历画像",
+    "gap_analyzer": "进行匹配度分析",
+    "content_generator": "生成简历内容",
+    "parallel_analysis": "并行分析 JD 与简历",
+    "parallel_post": "评审简历并生成面试题",
+    "reviewer": "评审简历质量",
+    "interview_qa": "生成面试题",
+    "interview_reviewer": "评审面试题",
+    "html_renderer": "渲染简历 HTML",
+    "clarifier": "澄清需求",
+}
+
+# 节点更新字段 → SSE 事件名（节点产出即实时推送）
+_NODE_EVENT_MAP = {
+    "jd_analysis": "jd_analysis",
+    "profile": "profile",
+    "gap_analysis": "gap_analysis",
+    "resume_content": "resume_content",
+    "render_config": "render_config",
+    "interview_questions": "interview_questions",
+    "clarification_question": "clarification",
+}
+
+
+async def _graph_stream(graph, state: dict, total_timeout: float):
+    """以整图总超时限制消费 graph.astream(updates)。
+
+    逐块消费并检查剩余时间，超时抛出 asyncio.TimeoutError，
+    由调用方转换为 SSE error 事件。
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + total_timeout
+    stream = graph.astream(state, stream_mode="updates")
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError(f"Graph 执行超过总超时 {total_timeout}s")
+            try:
+                chunk = await asyncio.wait_for(stream.__anext__(), timeout=remaining)
+                yield chunk
+            except StopAsyncIteration:
+                return
+    finally:
+        await stream.aclose()
 
 
 def _sse_event(event: str, data: dict[str, Any]) -> str:

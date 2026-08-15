@@ -93,6 +93,10 @@ export const useSessionStore = defineStore('session', () => {
 
   function handleSSEEvent(event: string, data: Record<string, unknown>) {
     switch (event) {
+      case 'progress':
+        // 流式进度：只保留一行"当前进度"，替换上一条 progress 消息避免刷屏
+        addProgressMessage((data as Record<string, unknown>).message as string || '处理中…')
+        break
       case 'jd_analysis':
         jdAnalysis.value = data as unknown as JDAnalysis
         activeTab.value = 'jd'
@@ -213,6 +217,20 @@ export const useSessionStore = defineStore('session', () => {
       activeTab.value = 'profile'
     } else if (jdAnalysis.value) {
       activeTab.value = 'jd'
+    }
+  }
+
+  function addProgressMessage(content: string) {
+    const last = messages.value[messages.value.length - 1]
+    if (last && last.eventType === 'progress') {
+      last.content = content
+    } else {
+      addMessage({
+        role: 'system',
+        content,
+        timestamp: new Date().toISOString(),
+        eventType: 'progress',
+      })
     }
   }
 
