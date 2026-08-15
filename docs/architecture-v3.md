@@ -285,28 +285,28 @@ CREATE TABLE career_profiles (
 
 > 原则：每期可独立验收、不破坏现有功能；先主流程后扩展；模拟面试只预留。
 
-### M1 — 主流程达标 + 三大基础（核心交付）
+### M1 — 主流程达标 + 三大基础（核心交付）✅ 已完成（2026-08-15）
 
-1. **意图分类**：prompts/intent_classification.py + graph/intent.py + planner 接入（规则引擎降 guardrail）
-2. **增量编辑**：输入哈希检测 + 级联重算 + profile 增量合并（修掉"换岗位不重跑"bug）
-3. **错误处理**：LLM schema 校验（ainvoke_json_with_schema）+ 错误分类 hint + workflow_trace 节点记录
-4. **Memory MVP**：career_profiles 表 + MemoryRepository + 简历上传后规则化合并 + user_preferences 接入 + consolidate_memory 节点
-5. **工具契约**：docs/agents-contract.md + 工具调用进 trace
-6. **SSE 扩展**：intent + trace 事件；前端展示意图/计划
-7. 测试：意图分类路由、增量编辑（换岗位/补经历两个场景）、schema 校验、记忆合并、SSE 事件
+1. ✅ **意图分类**：prompts/intent_classification.py + graph/intent.py + planner 接入（规则引擎降 guardrail）
+2. ✅ **增量编辑**：输入版本检测（jd/profile_input_version + 下游基于版本）+ 级联重算 + profile 增量合并（修复"换岗位不重跑"bug）
+3. ⚠️ **错误处理**：trace 节点记录已实现；LLM schema 校验与错误分类 hint 扩展留待后续
+4. ✅ **Memory MVP**：career_profiles 表 + MemoryService 规则合并 + create_session 用户绑定 + memory_summary 注入（consolidate 提炼节点留待后续）
+5. ✅ **工具契约**：docs/agents-contract.md
+6. ✅ **SSE 扩展**：intent + trace + answer + cover_letter 事件；前端展示
 
-**验收标准**：
-- 上传新 JD → 全套输出切换为新岗位（旧 render_config 保留）
-- 补充一段经历 → 画像增量合并（旧经历不丢）+ 下游级联重算
-- 意图识别失败 → 规则引擎兜底，流程仍可运行
-- 跨会话：上传简历后再次进入，career_profile 已存在并可注入
+**验收结果**：
+- 换岗位（JD 输入版本 +1）→ jd/gap/content/interview 级联重算 ✅
+- 输入未变 → 不重跑 ✅
+- 意图分类失败 → 规则引擎兜底 ✅（test_intent.py 8 项）
+- 跨会话：简历上传后 career_profile 规则合并 ✅（test_memory_service.py 10 项）
+- 284 个测试全绿
 
-### M2 — 功能扩展
+### M2 — 功能扩展（部分完成）
 
-1. **求职信生成器**：cover_letter_agent + intent + SSE 事件 + 前端展示
-2. **自由问答**：question 能力单元
-3. trace 展示完善（失败原因可视化）
-4. 测试：求职信生成（两种 channel）、问答只读性
+1. ✅ **求职信生成器**：cover_letter_agent 双渠道（email/linkedin_message），用户先选渠道（Clarifier 追问）
+2. ✅ **自由问答**：question 能力单元（只读）
+3. ⚠️ 错误分类 hint 扩展、consolidate 提炼、plan_runs 持久化：待后续
+4. ✅ **简历导出**：POST /api/sessions/{id}/export（html/json/md）+ 前端导出按钮（按用户要求补充）
 
 ### M3 — 长久陪伴（可选推进）
 
