@@ -4,9 +4,9 @@
 
 | 文档 | 用途 |
 |------|------|
-| [architecture-v2.md](architecture-v2.md) | 架构设计：9 Agent 分类、Tool/Memory/Reflection 设计、LangGraph 拓扑 |
-| [implementation-plan.md](implementation-plan.md) | 实施计划：Phase 4-9 + Sprint 1-2 进度（全部完成） |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | 部署指南：三种部署模式、环境配置、FAQ |
+| [architecture-v2.md](architecture-v2.md) | 架构设计：10 Agent 分类、Tool/Memory/Reflection 设计、LangGraph 拓扑、实现现状对照 |
+| [implementation-plan.md](implementation-plan.md) | 实施计划：Phase 4-9 + Sprint 1-4 进度（全部完成） |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | 部署指南：三种部署模式、环境配置（含 FAST_MODEL/GRAPH_TIMEOUT）、FAQ |
 
 根目录还有：
 - `HANDOFF.md` — 会话交接文档（项目现状、已知问题、踩坑记录）

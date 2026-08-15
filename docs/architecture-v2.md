@@ -2,7 +2,7 @@
 
 > **设计日期**: 2026-08-05
 > **设计原则**: 方案 A（最小改动）+ 项目需求驱动
-> **状态**: 待评审
+> **状态**: 已实施（部分设计在实现中调整，见[第十一章：实现现状对照](#十一实现现状对照2026-08-12)）
 
 ---
 
@@ -1081,4 +1081,77 @@ async def content_generator_node(state: GraphState) -> dict:
 
 ---
 
-**设计完成，等待评审。**
+## 十一、实现现状对照（2026-08-12）
+
+> 本文档为**原始设计**。以下对照表记录当前代码库的实际实现状态，
+> 两者不一致时以**实际实现**为准（代码见 `backend/app/`）。
+
+### 11.1 Agent 清单（设计 9 → 实现 10）
+
+| Agent | 设计 | 实现状态 |
+|------|------|---------|
+| Planner | LLM 路由 | ⚠️ 已改为**规则引擎**（`graph/edges.py` 的 `rule_based_route`），`PlannerAgent` 保留但不再调用 |
+| JD Analyzer | 提取器 | ✅ 实现（快模型，低温度） |
+| Profile Extractor | 提取器 | ✅ 实现（快模型） |
+| Gap Analyzer | 提取器 + RAG | ✅ 实现，绑定 `similar_cases` 工具（RAG） |
+| Content Generator | 生成器 + 循环 + Reflection | ✅ 实现，绑定 `best_practices`/`keyword_optimizer`/`template_search` 工具 |
+| Render Agent | 生成器 + 循环 | ✅ 实现（`html_renderer.py`），当前无独立评审循环 |
+| Interview QA | 生成器 + 循环 + RAG | ✅ 实现，绑定 `question_bank` 工具 |
+| Reviewer | 评审 | ✅ 实现（简历评审）；新增规则预检短路 |
+| **Interview Reviewer** | 无（新增） | ✅ 面试题评审循环（第 10 个 Agent） |
+| Clarifier | 交互器 | ✅ 实现，支持多轮澄清 + 对话历史注入 |
+
+### 11.2 图结构（实际拓扑）
+
+```text
+planner(规则路由)
+  ├─ parallel_analysis（JD 分析 ∥ 画像提取）──→ planner
+  ├─ gap_analyzer ──→ planner
+  └─ content_generator ──→ parallel_post（简历评审 ∥ 面试题生成）
+       parallel_post ──→ (评审通过) html_renderer ──→ interview_reviewer ──→ END
+                       └─ (评审不通过) content_generator（迭代，上限 2 轮）
+       interview_reviewer ──→ (不通过) interview_qa ──→ interview_reviewer（循环）
+```
+
+关键点：
+- 所有分析节点完成后**回到 planner 重新路由**
+- `parallel_post` 把面试题生成提前到与简历评审并行，节省一个串行时间段
+- 评审循环用 `reflect()`（阈值 75、迭代上限 2），`build_reflection_prompt(target)` 通用化支持"简历内容/面试题"
+
+### 11.3 与设计的主要差异
+
+| 设计 | 实现现状 | 说明 |
+|------|---------|------|
+| Tool 层 12+ 工具 | ✅ 全部实现，但**仅 3 个 Agent 真正绑定**（见 11.1） | 其余工具（state_reader/writer、industry_standards、date_parser 等）已实现未接线 |
+| 三层 Memory | ⚠️ 部分 | 短期（session messages + `conversation_history` 注入 ✅）、工作（GraphState ✅）、长期（`user_preferences` 表存在但**未接入 Agent**） |
+| Reflection 引擎（五维加权） | ⚠️ 简化 | Reviewer 返回五维 `dimensions`，但 `reflect()` 只用总分决策；评审前新增**规则预检**（板块完整+量化+关键词覆盖≥30% 则跳过 LLM） |
+| 三种协作模式 | ⚠️ 部分 | 顺序 + 并行（parallel_analysis/parallel_post）✅；请求协作 ❌ 未实现 |
+| Planner LLM 路由 | ❌ 已替换 | 规则引擎更快更稳，见 11.2 |
+| Trace 可观测 | ❌ 未实现 | 目前仅 logging；`Usage`（token 数）已采集未落库 |
+
+### 11.4 性能优化（2026-08 新增）
+
+| 优化 | 位置 | 效果 |
+|------|------|------|
+| Prompt 瘦身 | `tools/context.py`（compact_profile/jd/gap/resume_content） | 输入 token 预计降 50-70% |
+| 模型分层 | `agents/__init__.py` create_agents + `FAST_MODEL` 配置 | 提取类用快模型，生成类用主模型 |
+| 参数分层 | `BaseAgent.temperature/max_tokens/model` | 提取类 0.2/2048，生成类 0.7/4096 |
+| 评审规则预检 | `nodes.py` `_rule_based_review_check` | 合格简历跳过 1 次 LLM 评审调用 |
+| 并行化 | `parallel_post`（评审∥面试题） | 节省一个串行时间段（~45s） |
+| 迭代上限 3→2 | `reflection.py` `MAX_ITERATIONS` | 每轮省 2 次 LLM 调用（1-2 分钟） |
+| 流式推送 | `sessions.py` `astream` + 前端 progress | 首屏 30-45 秒，全程可见进度 |
+| 整图超时 | `GRAPH_TIMEOUT`（600s） | 防止长流程无限等待 |
+
+**实测预期**：完整流程后端耗时从 7-8 分钟降至约 3 分钟（取决于 MIMO 单次延迟，建议用节点耗时日志实测校准）。
+
+### 11.5 健壮性与安全（2026-08 新增）
+
+- 密钥（API Key / JWT）移出代码，`.env` 注入；`Settings` `extra="ignore"`
+- 重试区分错误类型（429/5xx 重试，401/400 快速失败）
+- 会话级并发锁（`asyncio.Lock`）防读-改-写竞态
+- `graph_state` 补齐澄清/文件/迭代字段，修复 Clarifier 多轮失忆
+- 工作流图全局缓存（`get_graph`），每条消息不再重建
+
+---
+
+**设计完成，已按第十一章对照落地。**

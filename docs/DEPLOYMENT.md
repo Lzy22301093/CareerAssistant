@@ -60,12 +60,16 @@ CareerAssistant/
 
 | 变量 | 说明 | 当前值 |
 |------|------|--------|
-| `OPENAI_API_KEY` | LLM API 密钥 | 已配置 |
+| `OPENAI_API_KEY` | LLM API 密钥 | 已配置（**不写死在代码里**，缺失时后端启动报错） |
 | `LLM_BASE_URL` | LLM API 地址 | `https://token-plan-cn.xiaomimimo.com/v1` |
-| `LLM_MODEL` | 模型名 | `mimo-v2.5-pro` |
+| `LLM_MODEL` | 主模型（生成类 Agent 用） | `mimo-v2.5-pro` |
+| `FAST_MODEL` | 快速模型（提取/评审/澄清类 Agent 用），为空回退 `LLM_MODEL` | `mimo-v2.5` |
+| `GRAPH_TIMEOUT` | 整条工作流总超时（秒） | `600` |
 | `JWT_SECRET_KEY` | JWT 签名密钥 | 已配置 |
 | `DATABASE_URL` | MySQL 连接串（仅 backend/.env） | `mysql+pymysql://career:career@localhost:3307/career_assistant` |
 | `REDIS_URL` | Redis 地址（仅 backend/.env） | `redis://localhost:6379/0` |
+
+> 模型分层说明：JD 分析、画像提取、差距分析、评审、澄清等**提取类**任务用 `FAST_MODEL`（更快更省）；简历生成、HTML 渲染、面试题生成等**生成类**任务用 `LLM_MODEL`（质量优先）。
 
 ---
 
@@ -274,7 +278,7 @@ docker compose up -d --build
 ```bash
 # 在本机跑后端测试（不依赖 Docker）
 cd backend
-python -m pytest tests/ -v
+python -m pytest tests/ -v --ignore=tests/test_tools_integration.py
 ```
 
 ---
@@ -382,8 +386,15 @@ from app.config import settings
 print('API Key:', settings.openai_api_key[:10] + '...')
 print('Base URL:', settings.llm_base_url)
 print('Model:', settings.llm_model)
+print('Fast Model:', settings.fast_model)
 "
 ```
+
+### Q: 从项目根目录启动后端报 pydantic 校验错误
+
+根目录 `.env` 里有 `MYSQL_PASSWORD` / `MYSQL_ROOT_PASSWORD` 等 docker compose 专用变量，
+`Settings` 已配置 `extra="ignore"` 忽略它们。若仍报错，检查 `backend/app/config.py` 的
+`model_config` 是否保留了 `extra="ignore"`。
 
 ### Q: 数据库表不存在
 

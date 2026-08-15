@@ -11,6 +11,9 @@ import type {
   RenderConfig,
 } from '../types'
 
+/** localStorage key for persisting the current session ID */
+const SESSION_ID_KEY = 'current_session_id'
+
 /** 聊天消息（包含系统事件） */
 export interface ChatMessage {
   id: string
@@ -63,6 +66,8 @@ export const useSessionStore = defineStore('session', () => {
 
     const res = await apiCreateSession()
     sessionId.value = res.data.session_id
+    // 持久化 session ID，刷新后可恢复
+    localStorage.setItem(SESSION_ID_KEY, res.data.session_id)
     addMessage({
       role: 'system',
       content: '会话已创建，请输入目标岗位的 JD 或上传 JD 文件。',
@@ -79,15 +84,30 @@ export const useSessionStore = defineStore('session', () => {
     profile.value = d.profile || null
     gapAnalysis.value = d.gap_analysis || null
     resumeContent.value = d.resume_content || null
-    renderConfig.value = d.render_config
-    interviewQuestions.value = (d.interview_questions?.questions) || []
-    messages.value = d.messages.map((m, i) => ({
+    renderConfig.value = d.render_config || null
+
+    // 兼容多种数据结构：数组 或 { questions: [...] }
+    const iq = d.interview_questions
+    interviewQuestions.value = Array.isArray(iq) ? iq : (iq?.questions || [])
+
+    messages.value = (d.messages || []).map((m, i) => ({
       id: String(i),
       role: m.role as 'user' | 'assistant' | 'system',
       content: m.content,
       timestamp: m.timestamp,
     }))
-    msgCounter = d.messages.length
+    msgCounter = (d.messages || []).length
+
+    // 持久化 session ID，刷新后可恢复
+    localStorage.setItem(SESSION_ID_KEY, id)
+
+    // 同时更新历史列表
+    const savedIds: string[] = JSON.parse(localStorage.getItem('session_ids') || '[]')
+    if (!savedIds.includes(id)) {
+      savedIds.unshift(id)
+      localStorage.setItem('session_ids', JSON.stringify(savedIds))
+    }
+
     autoSelectTab()
   }
 
@@ -238,6 +258,41 @@ export const useSessionStore = defineStore('session', () => {
     const targetId = id || sessionId.value
     if (targetId) {
       await apiDeleteSession(targetId)
+      // 如果删除的是当前会话，清除 localStorage
+      if (targetId === sessionId.value) {
+        localStorage.removeItem(SESSION_ID_KEY)
+        sessionId.value = ''
+        stage.value = 'init'
+        messages.value = []
+        jdAnalysis.value = null
+        profile.value = null
+        gapAnalysis.value = null
+        resumeContent.value = null
+        interviewQuestions.value = []
+        renderConfig.value = null
+      }
+      // 从历史列表中移除
+      const savedIds: string[] = JSON.parse(localStorage.getItem('session_ids') || '[]')
+      const updated = savedIds.filter(i => i !== targetId)
+      localStorage.setItem('session_ids', JSON.stringify(updated))
+    }
+  }
+
+  /**
+   * 恢复上次的会话（页面刷新时调用）。
+   * 如果 localStorage 中有 session ID 且后端仍有该会话，则加载它。
+   */
+  async function restoreSession(): Promise<boolean> {
+    const savedId = localStorage.getItem(SESSION_ID_KEY)
+    if (!savedId) return false
+
+    try {
+      await loadSession(savedId)
+      return true
+    } catch {
+      // 会话已过期或不存在，清除无效 ID
+      localStorage.removeItem(SESSION_ID_KEY)
+      return false
     }
   }
 
@@ -264,6 +319,7 @@ export const useSessionStore = defineStore('session', () => {
     activeTab,
     createSession,
     loadSession,
+    restoreSession,
     handleSSEEvent,
     deleteSession,
     abortSSE,

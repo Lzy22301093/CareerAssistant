@@ -75,13 +75,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { Plus, ChatDotRound, InfoFilled, Loading, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import { sendMessageSSE, uploadFile } from '../api/sessions'
 
 const session = useSessionStore()
+
+// 页面加载时自动恢复上次的会话
+onMounted(async () => {
+  if (!session.sessionId) {
+    await session.restoreSession()
+  }
+})
 
 const inputText = ref('')
 const messagesRef = ref<HTMLElement>()
