@@ -41,7 +41,11 @@ class Settings(BaseSettings):
     # Graph 执行总超时（秒）：单 Agent 120s，整条流水线兜底
     graph_timeout: int = 600
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore"：容忍 .env 中为 docker compose 等提供的额外变量
+    # （如 MYSQL_PASSWORD / MYSQL_ROOT_PASSWORD），避免从项目根启动时崩溃
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
 
 settings = Settings()
