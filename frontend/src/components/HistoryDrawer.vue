@@ -37,20 +37,18 @@
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSessionStore } from '../stores/session'
-import { getSessionStatus } from '../api/sessions'
-import type { SessionStatus } from '../types'
+import { listSessions } from '../api/sessions'
+import type { SessionListItem } from '../types'
 
 const props = defineProps<{ modelValue: boolean }>()
 defineEmits<{ 'update:modelValue': [val: boolean] }>()
 
 const session = useSessionStore()
 const loading = ref(false)
-const sessions = ref<SessionStatus[]>([])
+const sessions = ref<SessionListItem[]>([])
 
-// 后端没有 list sessions 接口，这里用一个 workaround：
-// 维护一个本地 session id 列表
-const savedIds = ref<string[]>(JSON.parse(localStorage.getItem('session_ids') || '[]'))
-
+// 历史列表由后端 GET /sessions/ 提供（替代原来的 localStorage workaround，
+// 避免刷新/清缓存后历史丢失）
 watch(() => props.modelValue, async (val) => {
   if (!val) return
   await refresh()
@@ -58,26 +56,20 @@ watch(() => props.modelValue, async (val) => {
 
 async function refresh() {
   loading.value = true
-  const results: SessionStatus[] = []
-
-  // 同时更新本地列表：把当前 session 加进去
-  if (session.sessionId && !savedIds.value.includes(session.sessionId)) {
-    savedIds.value.unshift(session.sessionId)
-    localStorage.setItem('session_ids', JSON.stringify(savedIds.value))
+  try {
+    const res = await listSessions()
+    // 当前会话始终展示在最前
+    const current = session.sessionId
+    sessions.value = [...res.data].sort((a, b) => {
+      if (a.session_id === current) return -1
+      if (b.session_id === current) return 1
+      return 0
+    })
+  } catch {
+    sessions.value = []
+  } finally {
+    loading.value = false
   }
-
-  for (const id of savedIds.value) {
-    try {
-      const res = await getSessionStatus(id)
-      results.push(res.data)
-    } catch {
-      // 会话已过期，移除
-      savedIds.value = savedIds.value.filter((i) => i !== id)
-    }
-  }
-  localStorage.setItem('session_ids', JSON.stringify(savedIds.value))
-  sessions.value = results
-  loading.value = false
 }
 
 async function handleLoad(id: string) {
@@ -93,8 +85,6 @@ async function handleDelete(id: string) {
   await ElMessageBox.confirm('确定删除此会话？', '确认')
   try {
     await session.deleteSession(id)
-    savedIds.value = savedIds.value.filter((i) => i !== id)
-    localStorage.setItem('session_ids', JSON.stringify(savedIds.value))
     sessions.value = sessions.value.filter((s) => s.session_id !== id)
     ElMessage.success('已删除')
   } catch {

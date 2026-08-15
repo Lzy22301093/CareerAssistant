@@ -142,6 +142,14 @@ export interface SessionStatus {
   file_count: number
 }
 
+/** 历史会话列表项（GET /sessions/ 返回的摘要） */
+export interface SessionListItem {
+  session_id: string
+  stage: SessionStage
+  message_count: number
+  updated_at: string
+}
+
 // === API 请求 ===
 
 export interface MessageRequest {

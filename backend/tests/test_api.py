@@ -83,11 +83,14 @@ def mock_llm():
 
 @pytest.fixture(autouse=True)
 async def reset_store():
-    """每个测试前重置会话存储。"""
+    """每个测试前重置会话存储与图缓存（图缓存按 LLM 构建，测试间必须隔离）。"""
     import app.api.sessions as mod
+    import app.graph.workflow as wf
     mod._store = InMemorySessionStore()
+    wf._compiled_graph = None
     yield
     mod._store = None
+    wf._compiled_graph = None
 
 
 @pytest.fixture
@@ -129,6 +132,77 @@ class TestGetSession:
     async def test_get_nonexistent_session(self, client: AsyncClient):
         resp = await client.get("/api/sessions/nonexistent")
         assert resp.status_code == 404
+
+
+class TestListSessions:
+    """测试历史会话列表接口。"""
+
+    async def test_list_sessions(self, client: AsyncClient):
+        await client.post("/api/sessions/")
+        await client.post("/api/sessions/")
+
+        resp = await client.get("/api/sessions/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        for item in data:
+            assert "session_id" in item
+            assert "stage" in item
+            assert "message_count" in item
+
+    async def test_list_empty(self, client: AsyncClient):
+        resp = await client.get("/api/sessions/")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+class TestInterruptedRunPersistence:
+    """处理中断时，已完成的节点结果应已即时落盘（历史刷新不丢）。"""
+
+    async def test_partial_results_persisted_on_error(
+        self, client: AsyncClient, mock_llm: MockLLM
+    ):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        # 第一个调用（jd_analyzer）正常返回 JD，第二个调用（clarifier）抛异常，
+        # 模拟处理中途失败（status_code=400 → 不可重试，快速失败）
+        class FakeBadRequest(Exception):
+            status_code = 400
+
+        class FailingLLM(MockLLM):
+            def __init__(self):
+                super().__init__()
+                self.default_response = '{"route": "clarify"}'
+                self.calls = 0
+
+            async def chat(self, messages, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return Response(content=json.dumps({
+                        "job_title": "Python 开发工程师",
+                        "company": "测试公司",
+                        "requirements": [],
+                        "keywords": ["python"],
+                        "summary": "测试",
+                    }, ensure_ascii=False))
+                raise FakeBadRequest("模拟中途失败")
+
+        with patch("app.api.sessions.create_llm_provider", return_value=FailingLLM()):
+            resp = await client.post(
+                f"/api/sessions/{session_id}/messages",
+                json={"content": "职位描述：Python 开发工程师"},
+            )
+
+        events = _parse_sse(resp.text)
+        event_types = [e["event"] for e in events]
+        assert "error" in event_types  # 流程确实中断
+
+        # 关键断言：已完成的 jd_analysis 已即时持久化，历史加载不丢
+        session_resp = await client.get(f"/api/sessions/{session_id}")
+        data = session_resp.json()
+        assert data["jd_analysis"] is not None
+        assert data["jd_analysis"]["job_title"] == "Python 开发工程师"
 
 
 class TestSessionStatus:

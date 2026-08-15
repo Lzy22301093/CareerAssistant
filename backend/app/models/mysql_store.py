@@ -148,6 +148,14 @@ class MySQLSessionStore(SessionStore):
         finally:
             db.close()
 
+    async def list_sessions(self) -> list[str]:
+        db = self._get_db()
+        try:
+            rows = db.query(AnalysisSession.session_id).all()
+            return [r[0] for r in rows]
+        finally:
+            db.close()
+
     def _session_to_dict(self, session: AnalysisSession, db: DBSession) -> dict[str, Any]:
         """将 ORM 对象转换为字典。"""
         # 获取上传文件

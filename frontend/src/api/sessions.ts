@@ -2,12 +2,17 @@ import client from './client'
 import type {
   SessionCreateResponse,
   SessionDetail,
+  SessionListItem,
   SessionStatus,
   UploadResponse,
 } from '../types'
 
 export function createSession() {
   return client.post<SessionCreateResponse>('/sessions/')
+}
+
+export function listSessions() {
+  return client.get<SessionListItem[]>('/sessions/')
 }
 
 export function getSession(sessionId: string) {

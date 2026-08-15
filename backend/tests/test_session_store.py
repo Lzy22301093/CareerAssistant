@@ -65,6 +65,15 @@ class TestInMemorySessionStore:
         await memory_store.create("s1", {"session_id": "s1"})
         assert await memory_store.exists("s1") is True
 
+    async def test_list_sessions(self, memory_store: InMemorySessionStore):
+        await memory_store.create("s1", {"session_id": "s1"})
+        await memory_store.create("s2", {"session_id": "s2"})
+        ids = await memory_store.list_sessions()
+        assert sorted(ids) == ["s1", "s2"]
+
+    async def test_list_sessions_empty(self, memory_store: InMemorySessionStore):
+        assert await memory_store.list_sessions() == []
+
 
 # === RedisSessionStore ===
 
@@ -121,3 +130,30 @@ class TestRedisSessionStore:
         assert await store.exists("s1") is True
         mock_redis.exists = AsyncMock(return_value=0)
         assert await store.exists("s2") is False
+
+    async def test_create_maintains_index(self, redis_store):
+        """create 时应把 session_id 加入索引 set。"""
+        store, mock_redis = redis_store
+        await store.create("s1", {"session_id": "s1"})
+        mock_redis.sadd.assert_awaited_once_with("session:index", "s1")
+
+    async def test_delete_removes_index(self, redis_store):
+        """delete 时应从索引 set 移除 session_id。"""
+        store, mock_redis = redis_store
+        await store.delete("s1")
+        mock_redis.srem.assert_awaited_once_with("session:index", "s1")
+
+    async def test_list_sessions(self, redis_store):
+        store, mock_redis = redis_store
+        mock_redis.smembers = AsyncMock(return_value={"s1", "s2"})
+        ids = await store.list_sessions()
+        assert sorted(ids) == ["s1", "s2"]
+
+    async def test_list_sessions_rebuilds_index_from_keys(self, redis_store):
+        """索引为空时（存量会话）用 KEYS 扫描兜底并重建索引。"""
+        store, mock_redis = redis_store
+        mock_redis.smembers = AsyncMock(return_value=set())
+        mock_redis.keys = AsyncMock(return_value=["session:s1", "session:s2", "session:index"])
+        ids = await store.list_sessions()
+        assert sorted(ids) == ["s1", "s2"]
+        mock_redis.sadd.assert_awaited_once_with("session:index", "s1", "s2")

@@ -203,6 +203,32 @@ async def create_session():
     return SessionCreateResponse(session_id=session_id)
 
 
+@router.get("/")
+async def list_sessions():
+    """列出所有会话摘要（历史会话列表，按最近更新倒序）。
+
+    会话 ID 索引由 SessionStore 维护（Redis set / 内存 keys），
+    替代前端 localStorage 方案，避免刷新或清缓存后历史丢失。
+    """
+    store = await get_store()
+    ids = await store.list_sessions()
+
+    summaries = []
+    for sid in ids:
+        s = await store.get(sid)
+        if s is None:
+            continue
+        summaries.append({
+            "session_id": sid,
+            "stage": s.get("stage", SessionStage.INIT.value),
+            "message_count": len(s.get("messages", []) or []),
+            "updated_at": s.get("updated_at", ""),
+        })
+
+    summaries.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+    return summaries
+
+
 @router.get("/{session_id}")
 async def get_session(session_id: str):
     """获取会话详情。"""
@@ -259,7 +285,8 @@ async def send_message(session_id: str, request: MessageRequest):
 
     async def event_stream():
         """SSE 事件流。"""
-        result = {}  # 初始化结果字典，用于异常处理时保存部分结果
+        result: dict[str, Any] = {}  # 初始化结果字典，用于异常处理时保存部分结果
+        merged_updates: dict[str, Any] = {}  # 流式各节点的增量更新累计
         try:
             # 解析上传的文件
             jd_text, resume_text = await _parse_uploaded_files(session)
@@ -302,7 +329,6 @@ async def send_message(session_id: str, request: MessageRequest):
             llm = create_llm_provider()
             graph = get_graph(llm)
 
-            merged_updates: dict[str, Any] = {}
             async for chunk in _graph_stream(graph, graph_state, settings.graph_timeout):
                 # chunk 形如 {"node_name": {字段: 值, ...}}
                 for node_name, updates in chunk.items():
@@ -316,6 +342,15 @@ async def send_message(session_id: str, request: MessageRequest):
                         if updates.get(key):
                             yield _sse_event(event_name, updates[key])
                     merged_updates.update(updates or {})
+
+                    # 即时持久化该节点的结果字段（中断/刷新时已完成产物不丢）
+                    persist = {
+                        k: v for k, v in (updates or {}).items()
+                        if k in _PERSIST_FIELDS and v is not None
+                    }
+                    if persist:
+                        session.update(persist)
+                        await store.update(session_id, persist)
 
             # updates 模式只返回增量，合并初始状态得到最终结果
             result = dict(graph_state)
@@ -372,13 +407,13 @@ async def send_message(session_id: str, request: MessageRequest):
                 "hint": error_hint,
             })
 
-            # 尝试保存已处理的部分结果
+            # 兜底保存已处理的部分结果（流式循环已即时持久化节点产物，
+            # 这里再覆盖一次澄清/状态字段，双保险幂等无害）
             try:
-                partial_updates = {}
-                if result.get("jd_analysis"):
-                    partial_updates["jd_analysis"] = result["jd_analysis"]
-                if result.get("profile"):
-                    partial_updates["profile"] = result["profile"]
+                partial_updates = {
+                    k: v for k, v in merged_updates.items()
+                    if k in _PERSIST_FIELDS and v is not None
+                }
                 if partial_updates:
                     partial_updates["updated_at"] = datetime.now().isoformat()
                     await store.update(session_id, partial_updates)
@@ -496,6 +531,21 @@ _NODE_EVENT_MAP = {
     "interview_questions": "interview_questions",
     "clarification_question": "clarification",
 }
+
+# 需要即时持久化的结果字段（流式循环中每完成一个节点就落盘一次，
+# 保证处理中断/页面刷新时已完成的分析结果不丢失）
+_PERSIST_FIELDS = (
+    "jd_analysis",
+    "profile",
+    "gap_analysis",
+    "resume_content",
+    "render_config",
+    "interview_questions",
+    "clarification_question",
+    "clarification_history",
+    "ready_to_proceed",
+    "content_iterations",
+)
 
 
 async def _graph_stream(graph, state: dict, total_timeout: float):

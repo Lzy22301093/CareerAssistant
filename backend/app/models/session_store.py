@@ -34,6 +34,10 @@ class SessionStore(ABC):
     async def exists(self, session_id: str) -> bool:
         """检查会话是否存在。"""
 
+    @abstractmethod
+    async def list_sessions(self) -> list[str]:
+        """列出所有会话 ID（历史会话列表用）。"""
+
 
 class InMemorySessionStore(SessionStore):
     """内存会话存储（开发 / 测试用）。"""
@@ -60,11 +64,15 @@ class InMemorySessionStore(SessionStore):
     async def exists(self, session_id: str) -> bool:
         return session_id in self._store
 
+    async def list_sessions(self) -> list[str]:
+        return list(self._store.keys())
+
 
 class RedisSessionStore(SessionStore):
     """Redis 会话存储（生产环境用）。"""
 
     KEY_PREFIX = "session:"
+    INDEX_KEY = "session:index"  # 会话 ID 索引（set），支撑历史列表
     DEFAULT_TTL = 86400 * 7  # 7 天过期
 
     def __init__(self, redis_client: Any, ttl: int = DEFAULT_TTL) -> None:
@@ -77,6 +85,7 @@ class RedisSessionStore(SessionStore):
     async def create(self, session_id: str, data: dict[str, Any]) -> None:
         serialized = json.dumps(data, default=str, ensure_ascii=False)
         await self._redis.set(self._key(session_id), serialized, ex=self._ttl)
+        await self._redis.sadd(self.INDEX_KEY, session_id)
 
     async def get(self, session_id: str) -> dict[str, Any] | None:
         raw = await self._redis.get(self._key(session_id))
@@ -92,7 +101,24 @@ class RedisSessionStore(SessionStore):
         await self.create(session_id, existing)
 
     async def delete(self, session_id: str) -> bool:
-        return await self._redis.delete(self._key(session_id)) > 0
+        deleted = await self._redis.delete(self._key(session_id)) > 0
+        await self._redis.srem(self.INDEX_KEY, session_id)
+        return deleted
 
     async def exists(self, session_id: str) -> bool:
         return await self._redis.exists(self._key(session_id)) > 0
+
+    async def list_sessions(self) -> list[str]:
+        ids = await self._redis.smembers(self.INDEX_KEY)
+        ids = sorted(ids or [])
+        # 兜底：索引为空时（如索引引入前的存量会话），扫描 keys 重建索引
+        if not ids:
+            keys = await self._redis.keys(f"{self.KEY_PREFIX}*")
+            ids = sorted(
+                k[len(self.KEY_PREFIX):]
+                for k in keys
+                if k != self.INDEX_KEY
+            )
+            if ids:
+                await self._redis.sadd(self.INDEX_KEY, *ids)
+        return ids
