@@ -8,7 +8,22 @@
     </div>
 
     <!-- 有数据时的 Tab 展示 -->
-    <el-tabs v-else v-model="session.activeTab" class="result-tabs">
+    <div v-else class="panel-with-tabs">
+      <div class="export-bar">
+        <el-dropdown @command="handleExport">
+          <el-button size="small" type="primary" plain :loading="exporting">
+            导出简历<el-icon style="margin-left: 4px"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="html">HTML</el-dropdown-item>
+              <el-dropdown-item command="json">JSON</el-dropdown-item>
+              <el-dropdown-item command="md">Markdown</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    <el-tabs v-model="session.activeTab" class="result-tabs">
       <!-- JD 分析 Tab -->
       <el-tab-pane label="JD 分析" name="jd">
         <div v-if="session.jdAnalysis" class="tab-content">
@@ -206,15 +221,40 @@
         <el-empty v-else description="暂无面试题" />
       </el-tab-pane>
     </el-tabs>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Document } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { ArrowDown, Document } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
+import { exportResume } from '../api/sessions'
 
 const session = useSessionStore()
+const exporting = ref(false)
+
+async function handleExport(format: string) {
+  if (!session.sessionId) return
+  exporting.value = true
+  try {
+    const res = await exportResume(session.sessionId, format as 'html' | 'json' | 'md')
+    // 触发浏览器下载
+    const blob = res.data as Blob
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `resume_${session.sessionId.slice(0, 8)}.${format === 'md' ? 'md' : format}`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error((e as Error)?.message || '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 
 function importanceType(val: string) {
   return val === 'high' ? 'danger' : val === 'medium' ? 'warning' : 'info'
@@ -252,6 +292,16 @@ function renderMarkdown(text: string): string {
   height: 100%;
   padding: 16px;
   overflow-y: auto;
+}
+
+.panel-with-tabs {
+  height: 100%;
+}
+
+.export-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 .empty-state {

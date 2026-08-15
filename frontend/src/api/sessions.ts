@@ -27,6 +27,10 @@ export function deleteSession(sessionId: string) {
   return client.delete(`/sessions/${sessionId}`)
 }
 
+export function exportResume(sessionId: string, format: 'html' | 'json' | 'md') {
+  return client.post<Blob>(`/sessions/${sessionId}/export`, { format }, { responseType: 'blob' })
+}
+
 export function uploadFile(sessionId: string, file: File, docType?: 'jd' | 'resume') {
   const form = new FormData()
   form.append('file', file)

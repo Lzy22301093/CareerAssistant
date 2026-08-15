@@ -11,8 +11,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, UploadFile, File, Header
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -207,13 +207,119 @@ async def _parse_uploaded_files(session: dict[str, Any]) -> tuple[str | None, st
 
 
 @router.post("/", response_model=SessionCreateResponse)
-async def create_session():
-    """创建新会话。"""
+async def create_session(authorization: str | None = Header(None)):
+    """创建新会话（可选绑定登录用户，用于跨会话记忆）。"""
     session_id = str(uuid.uuid4())
     store = await get_store()
-    await store.create(session_id, _new_session_data(session_id))
-    logger.info(f"Created session: {session_id}")
+    data = _new_session_data(session_id)
+    # 可选绑定用户：带有效 token 时关联 user_id，否则匿名会话（记忆降级跳过）
+    user_id = _resolve_user_id(authorization)
+    if user_id:
+        data["user_id"] = user_id
+    await store.create(session_id, data)
+    logger.info(f"Created session: {session_id} (user_id={user_id})")
     return SessionCreateResponse(session_id=session_id)
+
+
+def _resolve_user_id(authorization: str | None) -> int | None:
+    """从 Authorization header 解析用户 ID（无效返回 None）。"""
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    from app.services.auth_service import AuthService
+    payload = AuthService.decode_token(parts[1])
+    if not payload or not payload.get("sub"):
+        return None
+    try:
+        return int(payload["sub"])
+    except (TypeError, ValueError):
+        return None
+
+
+class ExportRequest(BaseModel):
+    format: str = "html"  # html | json | md
+
+
+def _build_template_data(session: dict[str, Any]) -> dict[str, Any]:
+    """从会话组装 HTML 模板数据（profile 结构化 + resume_content 兜底）。"""
+    profile = session.get("profile") or {}
+    sections = (session.get("resume_content") or {}).get("sections", [])
+
+    def section_content(keyword: str) -> str:
+        for sec in sections:
+            if isinstance(sec, dict) and keyword in (sec.get("title") or ""):
+                return sec.get("content") or ""
+        return ""
+
+    summary = profile.get("summary") or section_content("简介") or section_content("个人信息")
+    data = {
+        "name": profile.get("name") or "",
+        "email": profile.get("email") or "",
+        "phone": profile.get("phone") or "",
+        "location": profile.get("location") or "",
+        "summary": summary,
+        "skills": [{"skill": s} for s in (profile.get("skills") or [])],
+        "experience": [
+            {
+                "title": e.get("title", ""),
+                "company": e.get("company", ""),
+                "date": e.get("duration", ""),
+                "description": "；".join(e.get("highlights") or []),
+            }
+            for e in (profile.get("experience") or [])
+        ],
+        "education": [
+            {
+                "school": e.get("school", ""),
+                "date": str(e.get("year", "")),
+                "degree": e.get("degree", ""),
+                "major": e.get("major", ""),
+            }
+            for e in (profile.get("education") or [])
+        ],
+        "projects": [
+            {
+                "name": p.get("name", ""),
+                "date": "",
+                "description": p.get("description", "") or "；".join(p.get("highlights") or []),
+            }
+            for p in (profile.get("projects") or [])
+        ],
+    }
+    return data
+
+
+def _resume_to_markdown(session: dict[str, Any]) -> str:
+    """把会话中的简历内容转换为 Markdown。"""
+    lines: list[str] = []
+    profile = session.get("profile") or {}
+    content = session.get("resume_content") or {}
+
+    if profile.get("name"):
+        lines.append(f"# {profile['name']}")
+        lines.append("")
+
+    contact = " | ".join(
+        x for x in (profile.get("email"), profile.get("phone"), profile.get("location")) if x
+    )
+    if contact:
+        lines.append(contact)
+        lines.append("")
+
+    for section in content.get("sections", []):
+        if not isinstance(section, dict):
+            continue
+        title = section.get("title", "")
+        body = section.get("content", "")
+        if title and body:
+            lines.append(f"## {title}")
+            lines.append("")
+            lines.append(body)
+            lines.append("")
+
+    return "\n".join(lines)
 
 
 @router.get("/")
@@ -322,6 +428,15 @@ async def send_message(session_id: str, request: MessageRequest):
                     session["resume_input_hash"] = resume_hash
                     session["resume_input_version"] = profile_input_version
 
+            # 跨会话记忆注入（v3）：登录用户时读取长期档案摘要供节点使用
+            memory_summary: dict[str, Any] = {}
+            if session.get("user_id"):
+                try:
+                    from app.services.memory_service import MemoryService
+                    memory_summary = MemoryService().build_summary(session["user_id"])
+                except Exception as mem_err:
+                    logger.warning(f"[Memory] 读取档案失败: {mem_err}")
+
             # 构建初始状态
             # 注意：必须把澄清历史/就绪标记/上传文件等字段一并传入，
             # 否则 Clarifier 多轮决策和文件解析兜底逻辑都会"失忆"。
@@ -353,6 +468,7 @@ async def send_message(session_id: str, request: MessageRequest):
                 "interview_based_jd": session.get("interview_based_jd", -1),
                 "interview_based_profile": session.get("interview_based_profile", -1),
                 "cover_letter_channel": session.get("cover_letter_channel", ""),
+                "memory_summary": memory_summary,
                 "messages": session["messages"],
             }
 
@@ -412,6 +528,16 @@ async def send_message(session_id: str, request: MessageRequest):
             # 更新会话状态
             updates = _build_session_updates(session, result)
             await store.update(session_id, updates)
+
+            # 跨会话记忆（v3）：新画像规则合并进 career_profile（零 LLM）
+            user_id = session.get("user_id")
+            if user_id and result.get("profile") and not result["profile"].get("_error"):
+                try:
+                    from app.services.memory_service import MemoryService
+                    MemoryService().upsert_profile(user_id, result["profile"])
+                    logger.info(f"[Memory] user={user_id} 档案已合并")
+                except Exception as mem_err:
+                    logger.warning(f"[Memory] 合并失败 user={user_id}: {mem_err}")
 
             # 发送路由信息（若本轮产生）
             if result.get("route"):
@@ -543,6 +669,51 @@ async def upload_file(
         "file": file_info,
         "hint": "请发送消息，系统会自动处理上传的文件。",
     }
+
+
+@router.post("/{session_id}/export")
+async def export_resume(session_id: str, request: ExportRequest):
+    """导出简历（HTML / JSON / Markdown），直接返回文件下载。"""
+    store = await get_store()
+    session = await store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    content = session.get("resume_content")
+    if not content:
+        raise HTTPException(status_code=400, detail="尚未生成简历内容，请先生成简历")
+
+    fmt = request.format
+    filename = f"resume_{session_id[:8]}"
+
+    if fmt == "html":
+        from app.tools.render_tools import HtmlRendererTool
+        renderer = HtmlRendererTool()
+        template = (session.get("render_config") or {}).get("template", "modern")
+        result = await renderer.execute(template_name=template, data=_build_template_data(session))
+        if not result.success:
+            raise HTTPException(status_code=500, detail=f"HTML 渲染失败: {result.error}")
+        return Response(
+            content=result.data["html"],
+            media_type="text/html",
+            headers={"Content-Disposition": f'attachment; filename="{filename}.html"'},
+        )
+
+    if fmt == "json":
+        return Response(
+            content=json.dumps(content, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}.json"'},
+        )
+
+    if fmt == "md":
+        return Response(
+            content=_resume_to_markdown(session),
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{filename}.md"'},
+        )
+
+    raise HTTPException(status_code=400, detail="不支持的导出格式，可选 html / json / md")
 
 
 @router.delete("/{session_id}")

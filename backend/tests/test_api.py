@@ -313,6 +313,56 @@ class TestHealthEndpoint:
         assert resp.json()["status"] == "ok"
 
 
+class TestExportResume:
+    """测试简历导出端点。"""
+
+    async def _seed_session(self, client: AsyncClient, sid: str):
+        store = await get_store()
+        await store.create(sid, {
+            "session_id": sid,
+            "stage": SessionStage.COMPLETED,
+            "messages": [],
+            "jd_analysis": {},
+            "profile": {"name": "张三", "skills": ["Python"], "experience": []},
+            "gap_analysis": {},
+            "resume_content": {"sections": [{"title": "个人信息", "content": "张三"}]},
+            "render_config": {"template": "modern"},
+            "interview_questions": None,
+            "uploaded_files": [],
+        })
+
+    async def test_export_html(self, client: AsyncClient):
+        await self._seed_session(client, "export-1")
+        resp = await client.post("/api/sessions/export-1/export", json={"format": "html"})
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "张三" in resp.text
+
+    async def test_export_json(self, client: AsyncClient):
+        await self._seed_session(client, "export-2")
+        resp = await client.post("/api/sessions/export-2/export", json={"format": "json"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["sections"][0]["title"] == "个人信息"
+
+    async def test_export_markdown(self, client: AsyncClient):
+        await self._seed_session(client, "export-3")
+        resp = await client.post("/api/sessions/export-3/export", json={"format": "md"})
+        assert resp.status_code == 200
+        assert "个人信息" in resp.text
+
+    async def test_export_without_resume(self, client: AsyncClient):
+        create_resp = await client.post("/api/sessions/")
+        sid = create_resp.json()["session_id"]
+        resp = await client.post(f"/api/sessions/{sid}/export", json={"format": "html"})
+        assert resp.status_code == 400
+
+    async def test_export_bad_format(self, client: AsyncClient):
+        await self._seed_session(client, "export-4")
+        resp = await client.post("/api/sessions/export-4/export", json={"format": "pdf"})
+        assert resp.status_code == 400
+
+
 # === 辅助函数 ===
 
 

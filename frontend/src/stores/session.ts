@@ -37,6 +37,8 @@ export const useSessionStore = defineStore('session', () => {
   const resumeContent = ref<ResumeContent | null>(null)
   const interviewQuestions = ref<InterviewQuestion[]>([])
   const renderConfig = ref<RenderConfig | null>(null)
+  const coverLetter = ref<Record<string, unknown> | null>(null)
+  const lastAnswer = ref('')
 
   // 活跃 tab（ResultPanel 用）
   const activeTab = ref('jd')
@@ -61,6 +63,8 @@ export const useSessionStore = defineStore('session', () => {
     resumeContent.value = null
     interviewQuestions.value = []
     renderConfig.value = null
+    coverLetter.value = null
+    lastAnswer.value = ''
     activeTab.value = 'jd'
     isLoading.value = false
 
@@ -116,6 +120,52 @@ export const useSessionStore = defineStore('session', () => {
       case 'progress':
         // 流式进度：只保留一行"当前进度"，替换上一条 progress 消息避免刷屏
         addProgressMessage((data as Record<string, unknown>).message as string || '处理中…')
+        break
+      case 'intent': {
+        // v3：展示意图识别与执行计划
+        const intentData = data as Record<string, unknown>
+        const plan = (intentData.plan as unknown[]) || []
+        addMessage({
+          role: 'system',
+          content: `🎯 识别到意图：${intentData.intent}${plan.length ? `，计划：${plan.join(' → ')}` : ''}`,
+          timestamp: new Date().toISOString(),
+          eventType: 'intent',
+        })
+        break
+      }
+      case 'trace':
+        // 节点执行轨迹（轻量展示，避免刷屏：仅失败节点）
+        if ((data as Record<string, unknown>).status === 'failed') {
+          addMessage({
+            role: 'system',
+            content: `⚠️ 步骤 ${(data as Record<string, unknown>).node} 失败：${(data as Record<string, unknown>).error || '未知错误'}`,
+            timestamp: new Date().toISOString(),
+            eventType: 'trace',
+          })
+        }
+        break
+      case 'answer':
+        lastAnswer.value = (data as Record<string, unknown>).answer as string || ''
+        addMessage({
+          role: 'assistant',
+          content: lastAnswer.value,
+          timestamp: new Date().toISOString(),
+          eventType: 'answer',
+        })
+        break
+      case 'cover_letter':
+        coverLetter.value = data as Record<string, unknown>
+        {
+          const cl = data as Record<string, unknown>
+          const body = (cl.body as string) || ''
+          const subject = (cl.subject as string) ? `主题：${cl.subject}\n\n` : ''
+          addMessage({
+            role: 'assistant',
+            content: subject + body,
+            timestamp: new Date().toISOString(),
+            eventType: 'cover_letter',
+          })
+        }
         break
       case 'jd_analysis':
         jdAnalysis.value = data as unknown as JDAnalysis
@@ -316,6 +366,8 @@ export const useSessionStore = defineStore('session', () => {
     resumeContent,
     interviewQuestions,
     renderConfig,
+    coverLetter,
+    lastAnswer,
     activeTab,
     createSession,
     loadSession,

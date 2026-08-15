@@ -23,6 +23,7 @@ class User(Base):
     # Relationships
     sessions: Mapped[list["AnalysisSession"]] = relationship(back_populates="user")
     preferences: Mapped["UserPreference | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    career_profile: Mapped["CareerProfile | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(username={self.username!r}, email={self.email!r})>"
@@ -46,6 +47,28 @@ class UserPreference(Base):
 
     def __repr__(self) -> str:
         return f"<UserPreference(user_id={self.user_id})>"
+
+
+class CareerProfile(Base):
+    """Long-term career profile (跨会话记忆 v3).
+
+    持续演进的求职档案：技能/经历/偏好/缺口，由上传简历规则合并 +
+    consolidate 提炼维护。
+    """
+    __tablename__ = "career_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    profile_json: Mapped[str] = mapped_column(Text, nullable=False)  # 长期画像
+    source: Mapped[str] = mapped_column(String(32), default="resume", nullable=False)  # resume | consolidate
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="career_profile")
+
+    def __repr__(self) -> str:
+        return f"<CareerProfile(user_id={self.user_id}, source={self.source})>"
 
 
 class AnalysisSession(Base):

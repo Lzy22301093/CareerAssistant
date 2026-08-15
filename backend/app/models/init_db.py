@@ -9,6 +9,7 @@ import logging
 from app.models.database import Base, engine
 from app.models.orm import (  # noqa: F401
     AnalysisSession,
+    CareerProfile,
     ResumeVersion,
     UploadedFile,
     User,
