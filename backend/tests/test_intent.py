@@ -93,4 +93,11 @@ class TestClassifyIntent:
     def test_valid_intents_set(self):
         assert "upload_jd" in VALID_INTENTS
         assert "generate_cover_letter" in VALID_INTENTS
-        assert len(VALID_INTENTS) == 8
+        assert "record_interview" in VALID_INTENTS
+        assert len(VALID_INTENTS) == 9
+
+    @pytest.mark.asyncio
+    async def test_record_interview(self):
+        llm = MockLLM(_intent_json("record_interview"))
+        result = await classify_intent(llm, "今天面试挂了，问了 Redis", {})
+        assert result["intent"] == "record_interview"

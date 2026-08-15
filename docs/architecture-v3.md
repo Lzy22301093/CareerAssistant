@@ -313,11 +313,12 @@ CREATE TABLE career_profiles (
 - ✅ `consolidate` 提炼节点：LLM 一步（`ainvoke_json_with_schema`）+ 字段白名单 + 空值过滤 + 落库；upload_profile / content_edit 意图后触发（sessions.py）
 - ✅ `llm/structured.py`：`ainvoke_json_with_schema`（schema 校验 + 自动重试 1 次），供新能力单元使用
 
-### M3 — 长久陪伴（待推进）
+### M3 — 长久陪伴 ✅ 核心闭环已完成（2026-08-15）
 
-1. `job_applications` / `interview_logs` 表 + 对话式记录（复用 Clarifier 追问）
-2. 面试失败 → 教训提取 → 技能缺口更新 → 下次面试前提醒
-3. plan_runs/step_runs 持久化
+1. ✅ **面试记录闭环**：意图 `record_interview` + Clarifier 多轮追问（公司/岗位/结果/问题/失分点，LLM 解析 + schema 校验）→ `InterviewMemoryService.record_interview` 入库（`interview_logs` 表）→ 失败教训自动更新 `career_profile.gaps`
+2. ✅ **下次面试前提醒**：`upload_jd` 意图且用户有历史教训 → `build_review_plan` 生成针对性复习清单（基于失分点 + 当前 JD 重合度）→ SSE `review_plan` 事件 + 前端展示
+3. ✅ 数据表：`job_applications` / `interview_logs`（真实/模拟统一建模，`source` 字段预留模拟面试）
+4. ⏳ plan_runs/step_runs 持久化（可观测性，可选推进）
 
 ### M4 — AI 模拟面试（预留，不实施）
 

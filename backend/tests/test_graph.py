@@ -532,6 +532,31 @@ class TestNodes:
         assert llm.call_count == 0  # 未调用 LLM
 
     @pytest.mark.asyncio
+    async def test_clarifier_interview_record_progress(self):
+        """面试记录（M3）多轮追问：首轮追问，回复后解析并完成。"""
+        llm = MockLLM(json.dumps({
+            "company": "腾讯", "job_title": "后端工程师", "result": "failed",
+        }))
+        agents = create_agents(llm)
+
+        # 首轮：无历史 → 追问第一个缺失字段
+        state: GraphState = {"intent": "record_interview", "user_message": "我面试挂了"}
+        r1 = await clarifier_node(state, agents)
+        assert r1.get("clarification_question")
+        assert r1["ready_to_proceed"] is False
+
+        # 第二轮：有历史 + 用户回复 → LLM 解析 → 信息齐全
+        state2: GraphState = {
+            "intent": "record_interview",
+            "user_message": "腾讯的后端工程师，挂了",
+            "clarification_history": [{"question": "面试的是哪家公司？", "detected_intent": "interview_record"}],
+        }
+        r2 = await clarifier_node(state2, agents)
+        assert r2["ready_to_proceed"] is True
+        assert r2["interview_draft"]["company"] == "腾讯"
+        assert r2["interview_draft"]["result"] == "failed"
+
+    @pytest.mark.asyncio
     async def test_question_node(self):
         """自由问答节点：返回 answer。"""
         llm = MockLLM("你目前的画像中有 Python、FastAPI 技能，与岗位要求匹配度较高。")

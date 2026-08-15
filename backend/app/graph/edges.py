@@ -98,6 +98,12 @@ def rule_based_route(state: GraphState) -> str:
             return "clarifier"
         logger.info("[Rule] 意图=generate_cover_letter → 生成求职信")
         return "cover_letter"
+    if intent == "record_interview":
+        if state.get("ready_to_proceed"):
+            logger.info("[Rule] 意图=record_interview 信息已收集 → 结束")
+            return "end"
+        logger.info("[Rule] 意图=record_interview → 面试记录追问")
+        return "clarifier"
     if intent == "export":
         logger.info("[Rule] 意图=export → 对话结束（导出走独立 API）")
         return "end"

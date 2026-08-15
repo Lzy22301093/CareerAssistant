@@ -144,6 +144,20 @@ export const useSessionStore = defineStore('session', () => {
           })
         }
         break
+      case 'review_plan': {
+        // M3：基于历史失分点的针对性复习清单
+        const plan = data as Record<string, unknown>
+        const items = (plan.items as { topic: string; reason: string; suggestion: string }[]) || []
+        if (!items.length) break
+        const lines = items.map((it, i) => `${i + 1}. **${it.topic}**：${it.suggestion}`)
+        addMessage({
+          role: 'assistant',
+          content: `📌 结合你上次面试的失分点，为你准备了针对性复习清单：\n${lines.join('\n')}`,
+          timestamp: new Date().toISOString(),
+          eventType: 'review_plan',
+        })
+        break
+      }
       case 'answer':
         lastAnswer.value = (data as Record<string, unknown>).answer as string || ''
         addMessage({

@@ -75,6 +75,10 @@ class GraphState(TypedDict, total=False):
     cover_letter: dict[str, Any]    # 求职信/打招呼文案 {channel, subject, body, ...}
     cover_letter_channel: str       # 用户选择的渠道：email | linkedin_message
 
+    # === Interview Record（面试记录，M3） ===
+    interview_draft: dict[str, Any]  # 多轮追问收集的面试信息 {company, job_title, result, questions, weak_points}
+    interview_recorded: bool         # 本轮面试记录是否已完成入库
+
     # === Clarifier 输出 ===
     clarification_question: str     # 需要向用户澄清的问题
     clarification_history: list[dict[str, Any]]  # 澄清对话历史

@@ -94,6 +94,7 @@ def _new_session_data(session_id: str) -> dict[str, Any]:
         "jd_input_hash": "",
         "resume_input_hash": "",
         "cover_letter_channel": "",
+        "interview_draft": {},
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
     }
@@ -468,6 +469,7 @@ async def send_message(session_id: str, request: MessageRequest):
                 "interview_based_jd": session.get("interview_based_jd", -1),
                 "interview_based_profile": session.get("interview_based_profile", -1),
                 "cover_letter_channel": session.get("cover_letter_channel", ""),
+                "interview_draft": session.get("interview_draft", {}),
                 "memory_summary": memory_summary,
                 "messages": session["messages"],
             }
@@ -547,6 +549,41 @@ async def send_message(session_id: str, request: MessageRequest):
                     logger.info(f"[Memory] user={user_id} consolidate 完成")
                 except Exception as mem_err:
                     logger.warning(f"[Memory] consolidate 失败 user={user_id}: {mem_err}")
+
+            # 面试记录（M3）：多轮追问完成后入库 + 失败教训更新 gaps
+            if (
+                result.get("intent") == "record_interview"
+                and result.get("ready_to_proceed")
+                and result.get("interview_draft")
+            ):
+                if user_id:
+                    try:
+                        from app.services.interview_memory import InterviewMemoryService
+                        svc = InterviewMemoryService()
+                        log = svc.record_interview(user_id, result["interview_draft"])
+                        if log is not None:
+                            logger.info(f"[Memory] user={user_id} 面试记录已入库 (result={log.result})")
+                    except Exception as rec_err:
+                        logger.warning(f"[Memory] 面试记录入库失败: {rec_err}")
+                else:
+                    logger.info("[Memory] 未登录用户，面试记录跳过入库")
+
+            # 复习计划（M3）：新 JD 分析完成且有历史教训 → 生成针对性复习清单
+            if (
+                user_id
+                and result.get("intent") == "upload_jd"
+                and result.get("jd_analysis")
+                and not result["jd_analysis"].get("_error")
+            ):
+                try:
+                    from app.services.interview_memory import InterviewMemoryService
+                    plan = await InterviewMemoryService().build_review_plan(
+                        llm, user_id, result.get("jd_analysis", {}), result.get("gap_analysis")
+                    )
+                    if plan.get("items"):
+                        yield _sse_event("review_plan", plan)
+                except Exception as plan_err:
+                    logger.warning(f"[Memory] 复习计划生成失败: {plan_err}")
 
             # 发送路由信息（若本轮产生）
             if result.get("route"):
@@ -775,6 +812,7 @@ _PERSIST_FIELDS = (
     "content_iterations",
     "cover_letter",
     "cover_letter_channel",
+    "interview_draft",
 )
 
 
@@ -909,6 +947,11 @@ def _build_session_updates(session: dict, result: dict) -> dict[str, Any]:
         session["cover_letter_channel"] = result["cover_letter_channel"]
         updates["cover_letter_channel"] = result["cover_letter_channel"]
 
+    # 面试记录（M3）：多轮追问进度持久化
+    if result.get("interview_draft") is not None:
+        session["interview_draft"] = result["interview_draft"]
+        updates["interview_draft"] = result["interview_draft"]
+
     updates["updated_at"] = datetime.now().isoformat()
     return updates
 
@@ -932,6 +975,12 @@ def _build_assistant_message(result: dict) -> str:
         parts.append(f"已生成{label}文案")
         if cl.get("subject"):
             parts.append(f"主题：{cl['subject']}")
+
+    # 面试记录（M3）：收集完成给出确认，否则由 clarification_question 引导
+    if result.get("intent") == "record_interview":
+        if result.get("ready_to_proceed"):
+            return "已记录这次面试！失分点已加入你的求职档案，下次面试前我会帮你针对性复习。"
+        return "正在记录面试信息，请继续补充。"
 
     if result.get("route") == "jd_analyzer" and result.get("jd_analysis"):
         jd = result["jd_analysis"]

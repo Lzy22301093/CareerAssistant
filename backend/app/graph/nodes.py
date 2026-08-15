@@ -524,6 +524,10 @@ async def clarifier_node(state: GraphState, agents: dict) -> dict:
     clarification_history = state.get("clarification_history", [])
     is_multi_turn = len(clarification_history) > 0
 
+    # 面试记录（M3）：多轮追问收集面试信息（公司/岗位/结果/问题/失分点）
+    if state.get("intent") == "record_interview":
+        return await _handle_interview_recording(state, agents, clarification_history, is_multi_turn)
+
     # 求职信渠道选择（v3）：意图=generate_cover_letter 且渠道未定 → 直接给选项，不调 LLM
     if state.get("intent") == "generate_cover_letter" and not state.get("cover_letter_channel"):
         logger.info("[Node] Clarifier: 求职信渠道未选，给出选项")
@@ -584,6 +588,55 @@ async def clarifier_node(state: GraphState, agents: dict) -> dict:
         updates["clarification_history"] = history + [new_entry]
 
     return updates
+
+
+async def _handle_interview_recording(
+    state: GraphState, agents: dict, clarification_history: list, is_multi_turn: bool
+) -> dict:
+    """面试记录多轮追问（M3 长久陪伴）。
+
+    - 多轮：LLM 解析用户回复 → 合并进 interview_draft → 缺哪个字段问哪个
+    - 核心字段齐全（公司/岗位/结果）→ ready_to_proceed，由 sessions.py 入库
+    """
+    from app.services.interview_memory import InterviewMemoryService
+
+    svc = InterviewMemoryService()
+    draft = dict(state.get("interview_draft") or {})
+
+    if is_multi_turn:
+        llm = agents["clarifier"].llm
+        draft = await svc.parse_interview_reply(llm, state.get("user_message", ""), draft)
+
+    history = list(clarification_history)
+    if is_multi_turn and history:
+        history[-1] = {**history[-1], "answer": state.get("user_message", "")}
+
+    if svc.is_complete(draft):
+        logger.info("[Node] Interview Record: 信息齐全，等待入库")
+        return {
+            "interview_draft": draft,
+            "ready_to_proceed": True,
+            "clarification_history": history,
+            "workflow_trace": [
+                trace_item("clarifier", "success",
+                           input_summary="面试记录",
+                           output_summary=f"已收集 {draft.get('company')} {draft.get('job_title')} {draft.get('result')}")
+            ],
+        }
+
+    question = svc.next_question(draft) or "还有需要补充的信息吗？"
+    logger.info(f"[Node] Interview Record: 追问 -> {question}")
+    return {
+        "interview_draft": draft,
+        "clarification_question": question,
+        "clarification_history": history + [{"question": question, "detected_intent": "interview_record"}],
+        "ready_to_proceed": False,
+        "workflow_trace": [
+            trace_item("clarifier", "success",
+                       input_summary="面试记录追问",
+                       output_summary=question)
+        ],
+    }
 
 
 def _build_session_state(state: GraphState) -> dict:
