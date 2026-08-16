@@ -253,15 +253,19 @@ export const useSessionStore = defineStore('session', () => {
         isLoading.value = false
         autoSelectTab()
         break
-      case 'error':
+      case 'error': {
+        const errData = data as Record<string, unknown>
+        const detail = (errData.detail as string) || ''
+        const hint = (errData.hint as string) || ''
         addMessage({
           role: 'system',
-          content: `❌ ${(data as Record<string, unknown>).detail || '未知错误'}`,
+          content: `❌ ${detail || hint || '未知错误'}`,
           timestamp: new Date().toISOString(),
           eventType: 'error',
         })
         isLoading.value = false
         break
+      }
       case 'route':
         // 路由事件，显示 agent 路由信息
         addMessage({

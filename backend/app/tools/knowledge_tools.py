@@ -109,7 +109,12 @@ class QuestionBankTool(Tool):
         count: int = 5,
         **kwargs,
     ) -> ToolResult:
-        """搜索面试题。"""
+        """搜索面试题。
+
+        注意：工具内**不再调用 LLM**（生成额外题目由主 Agent 负责）。
+        原因：工具内调 LLM 会让 tool-calling 循环每轮产生 2 次 LLM 调用，
+        慢模型下多轮即超时（线上事故回归点）。
+        """
         try:
             # 筛选题目
             filtered = self._QUESTIONS
@@ -127,15 +132,8 @@ class QuestionBankTool(Tool):
             if difficulty != "all":
                 filtered = [q for q in filtered if q["difficulty"] == difficulty]
 
-            # 限制数量
+            # 限制数量（题库不足时返回已有题目，由 Agent 自行补充生成）
             questions = filtered[:count]
-
-            # 如果有 LLM，可以生成额外题目
-            if self._llm and len(questions) < count:
-                extra = await self._generate_questions(
-                    category, topic, difficulty, count - len(questions)
-                )
-                questions.extend(extra)
 
             return ToolResult.ok(
                 {"questions": questions, "total": len(questions)}

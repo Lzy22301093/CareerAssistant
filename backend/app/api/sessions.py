@@ -619,8 +619,9 @@ async def send_message(session_id: str, request: MessageRequest):
 
             # 错误分类（v3）：统一映射为 (category, hint)，前端可针对性展示
             category, error_hint = _classify_error(e)
+            detail = str(e).strip() or error_hint or "处理失败"
             yield _sse_event("error", {
-                "detail": str(e),
+                "detail": detail,
                 "hint": error_hint,
                 "category": category,
             })

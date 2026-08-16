@@ -25,7 +25,7 @@ from app.tools.base import Tool
 logger = logging.getLogger(__name__)
 
 AGENT_TIMEOUT = 120  # 单 Agent 超时 120s（MIMO API 响应较慢）
-TOOL_LOOP_MAX_ITERATIONS = 5  # 单次 run() 内最大 tool-calling 轮数
+TOOL_LOOP_MAX_ITERATIONS = 3  # 单次 run() 内最大 tool-calling 轮数（MIMO 慢，避免超时）
 
 
 class BaseAgent(ABC):
@@ -153,6 +153,7 @@ class BaseAgent(ABC):
 
         tool_defs = self._tool_definitions()
         response: Response | None = None
+        prev_tool_names: tuple[str, ...] | None = None
 
         for iteration in range(TOOL_LOOP_MAX_ITERATIONS + 1):
             response = await asyncio.wait_for(
@@ -169,6 +170,15 @@ class BaseAgent(ABC):
             # 没有工具调用 → 拿到最终内容，退出循环
             if not response.tool_calls:
                 break
+
+            # 防死循环：连续两轮调用完全相同的工具（无进展）→ 强制终止
+            names = tuple(tc.name for tc in response.tool_calls)
+            if names and names == prev_tool_names:
+                logger.warning(
+                    f"[{self.name}] 工具调用无进展（重复 {names}），终止工具循环"
+                )
+                break
+            prev_tool_names = names
 
             if not self.tools:
                 # 模型意外返回了 tool_calls 但 Agent 未注册工具：视为异常输出

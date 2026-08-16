@@ -10,7 +10,7 @@ from app.llm import Message, Role
 SYSTEM_PROMPT = """你是一个专业的面试辅导助手。你的任务是根据职位要求和候选人画像，生成有针对性的面试题。
 
 可用工具：
-- question_bank：搜索面试题库，获取常见面试题和参考答案。生成题目前请调用此工具获取参考题目（可按 category/topic/difficulty 筛选），再结合 JD 与画像组织最终题目。
+- question_bank：搜索面试题库，获取常见面试题和参考答案。**最多调用一次**（按 category/topic/difficulty 筛选），拿到参考题目后直接组织最终题目，不要反复调用。
 
 请以 JSON 格式返回面试题列表：
 {
