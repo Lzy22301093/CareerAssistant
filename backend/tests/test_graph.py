@@ -9,6 +9,7 @@ from app.graph.edges import (
     route_after_planner,
     route_after_reviewer,
     route_after_interview_review,
+    rule_based_route,
 )
 from app.graph.reflection import MAX_ITERATIONS
 from app.graph.nodes import (
@@ -243,6 +244,29 @@ class TestEdges:
     def test_route_after_planner_unknown(self):
         state: GraphState = {"route": "unknown"}
         assert route_after_planner(state) == "clarifier"
+
+    def test_file_processing_precedes_intent(self):
+        """回归：上传文件待处理时，意图误判不得短路输入处理。"""
+        state: GraphState = {
+            "intent": "ask_question",  # 意图被误判
+            "user_message": "帮我看看",
+            "resume_text": "张三，Python 工程师，5年经验",
+            "profile_input_version": 1,
+            "profile_analyzed_version": -1,  # 从未提取
+            "jd_input_version": 0,
+        }
+        assert rule_based_route(state) == "profile_extractor"
+
+        # JD 待处理同理
+        state2: GraphState = {
+            "intent": "ask_question",
+            "user_message": "帮我看看",
+            "jd_text": "Python 工程师，要求 3 年经验",
+            "jd_input_version": 1,
+            "jd_analyzed_version": -1,
+            "profile_input_version": 0,
+        }
+        assert rule_based_route(state2) == "jd_analyzer"
 
     def test_route_after_reviewer_pass(self):
         """高分通过。"""

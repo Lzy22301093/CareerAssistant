@@ -40,13 +40,23 @@ def _trim_highlights(exp: dict[str, Any], max_highlights: int = 4, max_chars: in
     return out
 
 
+def _is_invalid(data: dict[str, Any] | None) -> bool:
+    """错误状态（_error）视为无效数据，返回空，防止错误画像污染下游生成。"""
+    if not data:
+        return True
+    if data.get("_error"):
+        return True
+    return False
+
+
 def compact_profile(profile: dict[str, Any] | None, max_items: int = 5, max_chars: int = 400) -> dict[str, Any]:
     """压缩候选人画像。
 
     - experience / projects / education 各保留前 max_items 条
     - highlights 每条保留前 4 项、单条截断到 max_chars
+    - _error 状态（提取失败）返回 {}，避免下游基于错误画像胡编
     """
-    if not profile:
+    if _is_invalid(profile):
         return {}
 
     out = dict(profile)
@@ -64,7 +74,7 @@ def compact_profile(profile: dict[str, Any] | None, max_items: int = 5, max_char
 
 def compact_jd(jd: dict[str, Any] | None, max_requirements: int = 15, max_chars: int = 400) -> dict[str, Any]:
     """压缩 JD 分析结果。"""
-    if not jd:
+    if _is_invalid(jd):
         return {}
 
     out = dict(jd)
@@ -78,7 +88,7 @@ def compact_jd(jd: dict[str, Any] | None, max_requirements: int = 15, max_chars:
 
 def compact_gap(gap: dict[str, Any] | None, max_gaps: int = 10, max_chars: int = 300) -> dict[str, Any]:
     """压缩差距分析结果。"""
-    if not gap:
+    if _is_invalid(gap):
         return {}
 
     out = dict(gap)

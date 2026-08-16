@@ -191,3 +191,30 @@ class TestToolRegistry:
         assert "industry_standards" in tool_names
         assert "state_reader" in tool_names
         assert "state_writer" in tool_names
+
+
+class TestCompactContext:
+    """上下文压缩测试（防 _error 数据污染下游生成）。"""
+
+    def test_compact_profile_filters_error(self):
+        from app.tools.context import compact_profile
+
+        err_profile = {"_error": "file_parse_failed", "name": "", "skills": []}
+        assert compact_profile(err_profile) == {}
+
+    def test_compact_jd_filters_error(self):
+        from app.tools.context import compact_jd
+
+        assert compact_jd({"_error": "no_jd_text"}) == {}
+
+    def test_compact_gap_filters_error(self):
+        from app.tools.context import compact_gap
+
+        assert compact_gap({"_error": "missing_inputs"}) == {}
+
+    def test_compact_profile_keeps_valid(self):
+        from app.tools.context import compact_profile
+
+        profile = {"name": "张三", "skills": ["Python"], "experience": []}
+        out = compact_profile(profile)
+        assert out["name"] == "张三"

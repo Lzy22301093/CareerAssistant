@@ -88,7 +88,23 @@ def rule_based_route(state: GraphState) -> str:
         logger.info("[Rule] 多轮澄清中，等待用户回复")
         return "clarifier"
 
-    # === 意图专用路由（v3） ===
+    # === 规则 2（前置）：文件/输入待处理（版本感知）优先级最高 ===
+    # 防止意图误判（如把上传简历后的消息判成 ask_question）短路输入处理，
+    # 导致简历/JD 不被提取、下游基于空数据胡编（历史回归点）。
+    need_jd = has_jd_text and not has_jd
+    need_profile = has_resume_text and not has_profile
+
+    if need_jd and need_profile:
+        logger.info("[Rule] JD 和简历都有待分析 → 并行处理")
+        return "parallel_analysis"
+    if need_jd:
+        logger.info("[Rule] JD 待分析")
+        return "jd_analyzer"
+    if need_profile:
+        logger.info("[Rule] 简历待提取")
+        return "profile_extractor"
+
+    # === 意图专用路由（v3）—— 仅在没有待处理输入时生效 ===
     if intent == "ask_question":
         logger.info("[Rule] 意图=ask_question → 自由问答")
         return "question"

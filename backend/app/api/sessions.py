@@ -171,13 +171,15 @@ async def _parse_uploaded_files(session: dict[str, Any]) -> tuple[str | None, st
             logger.info(f"[ParseFiles] 使用为简历（用户指定）: {filename}")
         else:
             # 2. 根据文件名推断
+            # 注意：先查简历关键字（"job-application"、"求职申请"等求职简历
+            # 文件名常含 job/职位，若 JD 关键字优先会误判为 JD）
             filename_lower = filename.lower()
-            if any(keyword in filename_lower for keyword in ["jd", "job", "职位", "岗位"]):
-                jd_text = text
-                logger.info(f"[ParseFiles] 使用为 JD（文件名匹配）: {filename}")
-            elif any(keyword in filename_lower for keyword in ["resume", "简历", "cv"]):
+            if any(keyword in filename_lower for keyword in ["resume", "简历", "cv", "求职", "应聘", "application"]):
                 resume_text = text
                 logger.info(f"[ParseFiles] 使用为简历（文件名匹配）: {filename}")
+            elif any(keyword in filename_lower for keyword in ["jd", "job", "职位", "岗位", "requirement"]):
+                jd_text = text
+                logger.info(f"[ParseFiles] 使用为 JD（文件名匹配）: {filename}")
             else:
                 # 3. 根据会话状态推断
                 if session.get("jd_analysis"):

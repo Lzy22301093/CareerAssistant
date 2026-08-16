@@ -313,6 +313,31 @@ class TestHealthEndpoint:
         assert resp.json()["status"] == "ok"
 
 
+class TestUploadThenAnalyze:
+    """回归：上传简历文件后发送消息，画像必须被提取（防意图误判短路）。"""
+
+    async def test_upload_resume_then_message_analyzes(self, client: AsyncClient, mock_llm: MockLLM):
+        create_resp = await client.post("/api/sessions/")
+        sid = create_resp.json()["session_id"]
+
+        # 上传简历文件（文件名含"简历" → 正确判为简历）
+        resume_text = "张三，Python 工程师，5年经验，负责支付系统开发"
+        up = await client.post(
+            f"/api/sessions/{sid}/upload",
+            files={"file": ("张三-简历.txt", resume_text.encode("utf-8"), "text/plain")},
+        )
+        assert up.status_code == 200
+
+        # 发送一条可能被误判意图的消息（如"帮我看看"）
+        with patch("app.api.sessions.create_llm_provider", return_value=mock_llm):
+            await client.post(f"/api/sessions/{sid}/messages", json={"content": "帮我看看"})
+
+        # 简历必须被提取并保存到会话
+        s = (await client.get(f"/api/sessions/{sid}")).json()
+        assert s["profile"] is not None
+        assert s["profile"].get("name") == "张三"
+
+
 class TestExportResume:
     """测试简历导出端点。"""
 
