@@ -65,6 +65,7 @@ class ProfileExtractorAgent(BaseAgent):
     # 提取类 Agent：低温度保证稳定，输出较小
     temperature = 0.2
     max_tokens = 2048
+    max_parse_attempts = 2  # JSON 解析失败自动修复重试一次
 
     def build_messages(self, **kwargs) -> list[Message]:
         resume_text = kwargs.get("resume_text", "")

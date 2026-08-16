@@ -680,6 +680,40 @@ class TestToolCallingLoop:
         assert llm.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_parse_failure_retries_fix(self):
+        """JSON 解析失败时自动回喂 LLM 修复重试（max_parse_attempts=2）。"""
+        class FixLLM:
+            def __init__(self):
+                self.responses = ['不是 JSON', '{"job_title": "Python 工程师"}']
+                self.call_count = 0
+
+            async def chat(self, messages, **kwargs):
+                resp = self.responses[min(self.call_count, 1)]
+                self.call_count += 1
+                return Response(content=resp)
+
+        agent = JDAnalyzerAgent(FixLLM())
+        result = await agent.run(jd_text="Python 工程师")
+        assert result["job_title"] == "Python 工程师"
+        assert agent.llm.call_count == 2  # 首次失败 + 修复重试成功
+
+    @pytest.mark.asyncio
+    async def test_parse_failure_after_retry_still_falls_back(self):
+        """修复重试仍失败 → 返回 fallback（不无限重试）。"""
+        class BadLLM:
+            def __init__(self):
+                self.call_count = 0
+
+            async def chat(self, messages, **kwargs):
+                self.call_count += 1
+                return Response(content="还是不是 JSON")
+
+        agent = JDAnalyzerAgent(BadLLM())
+        result = await agent.run(jd_text="Python 工程师")
+        assert result.get("_parse_error") is True
+        assert agent.llm.call_count == 2  # 只重试一次
+
+    @pytest.mark.asyncio
     async def test_unknown_tool_returns_error_to_llm(self):
         """LLM 调用了未注册的工具 → 把错误返回给 LLM，不抛异常。"""
         llm = ToolCallingLLM(final_response='{"ok": true}', tool_name="no_such_tool")

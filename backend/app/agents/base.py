@@ -50,6 +50,8 @@ class BaseAgent(ABC):
     temperature: float = 0.7
     max_tokens: int = 4096
     model: str | None = None
+    # 解析失败修复重试次数上限（>1 时，LLM 输出非 JSON 会回喂修复一次）
+    max_parse_attempts: int = 1
 
     def __init__(
         self,
@@ -199,7 +201,42 @@ class BaseAgent(ABC):
         if response is None:
             raise RuntimeError(f"[{self.name}] LLM 未返回任何响应")
 
-        return self.parse_response(response.content or "")
+        final_content = response.content or ""
+
+        # 解析 + 失败修复重试（max_parse_attempts > 1 时生效）：
+        # LLM 输出非合法 JSON 时，把原始输出回喂让它修复格式，再解析一次
+        result = self.parse_response(final_content)
+        attempts = 1
+        while result.get("_parse_error") and attempts < self.max_parse_attempts:
+            attempts += 1
+            logger.warning(
+                f"[{self.name}] 输出解析失败，请求 LLM 修复格式（第 {attempts} 次）"
+            )
+            fix_messages = messages + [
+                Message(
+                    role=Role.USER,
+                    content=(
+                        "你上一次的输出无法解析为合法 JSON。请重新输出，严格要求：\n"
+                        "1. 只输出一个合法 JSON 对象\n"
+                        "2. 不要 Markdown 代码块、注释或任何解释文字\n"
+                        f"3. 这是你上一次的输出，请修复其格式后重新输出：\n{final_content[:2000]}"
+                    ),
+                )
+            ]
+            fix_response = await asyncio.wait_for(
+                self._call_llm(
+                    fix_messages,
+                    tools=tool_defs or None,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    model=self.model,
+                ),
+                timeout=AGENT_TIMEOUT,
+            )
+            final_content = fix_response.content or ""
+            result = self.parse_response(final_content)
+
+        return result
 
     # --- 上下文注入 ---
 

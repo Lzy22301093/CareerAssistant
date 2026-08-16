@@ -268,6 +268,30 @@ class TestEdges:
         }
         assert rule_based_route(state2) == "jd_analyzer"
 
+    def test_clarification_does_not_block_new_jd(self):
+        """回归：澄清未完成时，用户发 JD 应放行，而不是继续卡在澄清。"""
+        state: GraphState = {
+            "intent": "upload_jd",  # 意图正确识别为 JD
+            "user_message": "职位描述：项目经理，要求5年经验，负责项目规划与团队管理",
+            "jd_text": "",
+            "resume_text": "",
+            "clarification_history": [{"question": "请提供职位描述"}],  # 上一轮澄清未完成
+            "ready_to_proceed": False,
+            "jd_input_version": 0,
+            "profile_input_version": 0,
+        }
+        assert rule_based_route(state) == "jd_analyzer"
+
+    def test_clarification_still_blocks_non_input(self):
+        """澄清中且新消息不是 JD/简历 → 仍继续澄清。"""
+        state: GraphState = {
+            "intent": "ask_question",
+            "user_message": "好的知道了",
+            "clarification_history": [{"question": "请提供职位描述"}],
+            "ready_to_proceed": False,
+        }
+        assert rule_based_route(state) == "clarifier"
+
     def test_route_after_reviewer_pass(self):
         """高分通过。"""
         state: GraphState = {

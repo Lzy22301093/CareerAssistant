@@ -63,7 +63,7 @@ async def planner_node(state: GraphState, agents: dict) -> dict:
     plan = [route] if route != "end" else []
     logger.info(f"[Node] Planner: intent={intent}, route={route}")
 
-    return {
+    updates: dict[str, Any] = {
         "intent": intent,
         "intent_reason": intent_result.get("reason", ""),
         "cover_letter_channel": channel or state.get("cover_letter_channel", ""),
@@ -79,6 +79,20 @@ async def planner_node(state: GraphState, agents: dict) -> dict:
             )
         ],
     }
+
+    # 澄清中断处理（历史回归修复）：新输入（JD/简历）到来时结束旧澄清，
+    # 否则规则 1 会在后续轮次继续拦截，流程卡死
+    clarification_history = state.get("clarification_history", [])
+    if (
+        clarification_history
+        and not state.get("ready_to_proceed")
+        and intent in ("upload_jd", "upload_profile")
+    ):
+        logger.info("[Planner] 新输入到来，结束旧澄清（重置澄清状态）")
+        updates["ready_to_proceed"] = True
+        updates["clarification_history"] = []
+
+    return updates
 
 
 def _rule_based_review_check(state: GraphState) -> dict | None:

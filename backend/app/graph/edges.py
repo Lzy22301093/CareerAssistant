@@ -14,6 +14,16 @@ _JD_KEYWORDS = ("职位", "岗位", "职责", "要求", "任职", "工作内容"
 _RESUME_KEYWORDS = ("教育背景", "工作经历", "项目经历", "实习经历", "个人简历", "专业技能")
 
 
+def _looks_like_jd(text: str) -> bool:
+    """消息是否明显是 JD 内容。"""
+    return bool(text) and any(kw in text for kw in _JD_KEYWORDS) and len(text) > 30
+
+
+def _looks_like_resume(text: str) -> bool:
+    """消息是否明显是简历内容。"""
+    return bool(text) and any(kw in text for kw in _RESUME_KEYWORDS) and len(text) > 30
+
+
 def _has_valid_data(data: dict | None) -> bool:
     """检查数据是否为有效的非空字典（排除错误状态）。"""
     if not data:
@@ -84,9 +94,16 @@ def rule_based_route(state: GraphState) -> str:
     user_msg = state.get("user_message", "")
 
     # === 规则 1：多轮澄清中，且未完成 ===
+    # 但若用户新消息是明确的 JD/简历（意图识别或关键词），视为新输入放行，
+    # 否则会无限卡在澄清里（用户发 JD 被当澄清回答 → 流程乱，历史回归点）。
     if clarification_history and not ready_to_proceed:
-        logger.info("[Rule] 多轮澄清中，等待用户回复")
-        return "clarifier"
+        if intent in ("upload_jd", "upload_profile"):
+            logger.info("[Rule] 澄清中但新消息是 JD/简历 → 放行处理")
+        elif _looks_like_jd(user_msg) or _looks_like_resume(user_msg):
+            logger.info("[Rule] 澄清中但消息含 JD/简历内容 → 放行处理")
+        else:
+            logger.info("[Rule] 多轮澄清中，等待用户回复")
+            return "clarifier"
 
     # === 规则 2（前置）：文件/输入待处理（版本感知）优先级最高 ===
     # 防止意图误判（如把上传简历后的消息判成 ask_question）短路输入处理，
