@@ -1,9 +1,9 @@
-"""意图分类（v3）— LLM 意图识别，失败/低置信时由调用方回退规则引擎。
+"""意图分类（v3）— LLM 意图识别，失败/低置信时回退 fallback。
 
 参考 ai-career-copilot 的 intent classification 模式：
 - 一次 LLM 调用（FAST_MODEL，成本低）
 - 输出结构化 {intent, reason, confidence}
-- 解析失败或低置信 → 调用方回退 rule_based_route（guardrail）
+- 解析失败或低置信 → 调用方回退 fallback（guardrail）
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ VALID_INTENTS = {
     "ask_question",
     "generate_cover_letter",
     "record_interview",
+    "interview_sim",
 }
 
 # 低置信阈值：低于该值视为不可信，回退规则引擎

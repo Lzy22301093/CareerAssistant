@@ -3,7 +3,13 @@
     <div v-if="loading" v-loading="true" style="height: 200px" />
 
     <div v-else-if="sessions.length === 0" class="empty">
-      <el-empty description="暂无历史会话" :image-size="80" />
+      <div class="empty-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <p class="empty-text">暂无历史会话</p>
     </div>
 
     <div v-else class="session-list">
@@ -96,31 +102,51 @@ async function handleDelete(id: string) {
 <style scoped>
 .empty {
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  padding-top: 40px;
+  padding-top: var(--space-10);
+  color: var(--color-text-disabled);
+}
+
+.empty-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-gray-100);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+}
+
+.empty-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 
 .session-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .session-item {
-  padding: 12px;
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
+  padding: var(--space-3);
+  border: var(--border-light);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-fast) var(--ease-default);
 }
 
 .session-item:hover {
-  border-color: #409eff;
+  border-color: var(--color-accent-600);
 }
 
 .session-item.active {
-  border-color: #409eff;
-  background: #ecf5ff;
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-50);
 }
 
 .session-info {
@@ -130,16 +156,17 @@ async function handleDelete(id: string) {
 }
 
 .session-id {
-  font-family: monospace;
-  color: #606266;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 
 .session-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
-  font-size: 12px;
-  color: #909399;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-disabled);
 }
 </style>

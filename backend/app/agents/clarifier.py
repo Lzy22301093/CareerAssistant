@@ -83,8 +83,9 @@ class ClarifierAgent(BaseAgent):
     description = "智能澄清与引导"
 
     # 对话类 Agent：输出短小，低温度保证稳定
+    # max_tokens 需足够大：MIMO 模型可能有内部思考链消耗 token，过小会导致输出为空
     temperature = 0.3
-    max_tokens = 1024
+    max_tokens = 4096
 
     def build_messages(self, **kwargs) -> list[Message]:
         user_message = kwargs.get("user_message", "")

@@ -63,14 +63,19 @@ def traced(node_name: str, input_summary: str = ""):
             start = time.perf_counter()
             result = await fn(state, agents)
             latency = (time.perf_counter() - start) * 1000
-            result["workflow_trace"] = [
-                trace_item(
-                    node_name, "success",
-                    input_summary=input_summary,
-                    output_summary=_summarize_result(result),
-                    latency_ms=latency,
-                )
-            ]
+            # 如果节点内部已设置 trace（如 guard 返回 skipped），保留它
+            existing_trace = result.get("workflow_trace", [])
+            if existing_trace and existing_trace[0].get("status") == "skipped":
+                existing_trace[0]["latency_ms"] = round(latency, 1)
+            else:
+                result["workflow_trace"] = [
+                    trace_item(
+                        node_name, "success",
+                        input_summary=input_summary,
+                        output_summary=_summarize_result(result),
+                        latency_ms=latency,
+                    )
+                ]
             return result
         return wrapper
     return decorator

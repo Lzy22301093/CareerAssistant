@@ -94,7 +94,8 @@ class TestClassifyIntent:
         assert "upload_jd" in VALID_INTENTS
         assert "generate_cover_letter" in VALID_INTENTS
         assert "record_interview" in VALID_INTENTS
-        assert len(VALID_INTENTS) == 9
+        assert "interview_sim" in VALID_INTENTS
+        assert len(VALID_INTENTS) == 10
 
     @pytest.mark.asyncio
     async def test_record_interview(self):

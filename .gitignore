@@ -261,3 +261,9 @@ uploads/
 backend/uploads/
 exports/
 backend/exports/
+
+# 夜间运行临时目录
+.ptmp/
+
+# 产品参考资料（27MB 截图），只读不入库
+逆向工程/

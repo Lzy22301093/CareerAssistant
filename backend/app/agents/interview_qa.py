@@ -7,31 +7,35 @@ import json
 from app.agents.base import BaseAgent
 from app.llm import Message, Role
 
-SYSTEM_PROMPT = """你是一个专业的面试辅导助手。你的任务是根据职位要求和候选人画像，生成有针对性的面试题。
+SYSTEM_PROMPT = """你是一个专业的面试辅导助手。根据职位要求（Job）和候选人画像（Profile），生成有针对性的面试题。
 
-可用工具：
-- question_bank：搜索面试题库，获取常见面试题和参考答案。**最多调用一次**（按 category/topic/difficulty 筛选），拿到参考题目后直接组织最终题目，不要反复调用。
+## 输出要求
+- 只返回一个合法 JSON 对象，不要 Markdown 代码块、注释或任何解释文字
+- 所有 key 使用双引号，字符串中的双引号用 \\" 转义
+- 即使信息不足，也要返回合法 JSON（可用题目数量少一些）
 
-请以 JSON 格式返回面试题列表：
+## JSON 格式
 {
     "questions": [
         {
             "question": "面试问题",
-            "category": "behavioral|technical|situational",
+            "category": "technical|project_deep_dive|behavioral",
             "difficulty": "easy|medium|hard",
-            "answer_points": ["要点1", "要点2"],
-            "sample_answer": "参考答案"
+            "answer_points": ["要点1", "要点2", "要点3"],
+            "sample_answer": "基于候选人材料的参考答案（100-200字）"
         }
     ]
 }
 
-要求：
-1. 生成 5-10 道面试题
-2. 包含技术题、行为题和情景题
-3. 难度分布：2 easy, 3-4 medium, 1-2 hard
-4. answer_points 列出 3-5 个关键点
-5. sample_answer 简洁明了（100-200字）
-6. 只返回 JSON，不要添加额外说明"""
+## 题目要求
+1. 生成 6-10 道面试题，覆盖三类：
+   - technical：技术知识题（语言、框架、算法、系统设计等）
+   - project_deep_dive：深挖候选人项目/实习经历（追问细节、权衡决策、量化成果）
+   -behavioral：行为/情景题（团队协作、冲突处理、压力管理）
+2. 难度分布：2 easy, 3-4 medium, 2-3 hard
+3. answer_points 列出 3-5 个回答关键点
+4. sample_answer 必须**基于候选人实际材料**，不要泛泛而谈
+5. 如果有差距分析（gap），重点针对薄弱环节出题"""
 
 
 class InterviewQAAgent(BaseAgent):
@@ -39,6 +43,8 @@ class InterviewQAAgent(BaseAgent):
 
     name = "interview_qa"
     description = "生成针对性面试题"
+    max_parse_attempts = 2
+    json_mode = True
 
     def build_messages(self, **kwargs) -> list[Message]:
         from app.tools.context import compact_gap, compact_jd, compact_profile
@@ -49,14 +55,14 @@ class InterviewQAAgent(BaseAgent):
         user_instructions = kwargs.get("user_instructions", "")
 
         user_content = (
-            f"职位分析：\n{json.dumps(jd_analysis, ensure_ascii=False, indent=2)}\n\n"
-            f"候选人画像：\n{json.dumps(profile, ensure_ascii=False, indent=2)}"
+            f"## 职位要求 (Job)\n{json.dumps(jd_analysis, ensure_ascii=False, indent=2)}\n\n"
+            f"## 候选人画像 (Profile)\n{json.dumps(profile, ensure_ascii=False, indent=2)}"
         )
         if gap_analysis:
-            user_content += f"\n\n差距分析：\n{json.dumps(gap_analysis, ensure_ascii=False, indent=2)}"
+            user_content += f"\n\n## 差距分析 (Gap)\n{json.dumps(gap_analysis, ensure_ascii=False, indent=2)}"
         if user_instructions:
-            user_content += f"\n\n用户特别要求：{user_instructions}"
-        user_content += "\n\n请生成面试题。"
+            user_content += f"\n\n## 用户特别要求\n{user_instructions}"
+        user_content += "\n\n请根据以上信息生成面试题。"
 
         return [
             Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
@@ -66,7 +72,10 @@ class InterviewQAAgent(BaseAgent):
     def parse_response(self, content: str) -> dict:
         result = self.extract_json(content)
         if result and "questions" in result:
-            return result
+            # 校验 questions 是列表且非空
+            questions = result["questions"]
+            if isinstance(questions, list) and len(questions) > 0:
+                return result
         return {
             "questions": [],
             "_raw": content,

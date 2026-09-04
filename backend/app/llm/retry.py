@@ -75,24 +75,30 @@ def _retry_delay(exc: Exception, attempt: int, base_delay: float) -> float:
     """计算本次重试前的等待秒数。
 
     - 普通错误：指数退避 base_delay * 2^attempt
-    - 429 限流：额外延长（10s/20s/30s），并尽量尊重 Retry-After 头
+    - 429 限流：额外延长（2s/4s/8s，A3 从 10/20/30s 压缩，快速失败优先），
+      并尽量尊重 Retry-After 头（上限 10s）
     """
     delay = base_delay * (2 ** attempt)
     if _rate_limited(exc):
-        # 尊重 Retry-After 响应头（如果有）
+        # 尊重 Retry-After 响应头（如果有），但设置上限避免单次退避失控
         headers = getattr(exc, "headers", None)
         if isinstance(headers, dict):
             retry_after = headers.get("retry-after")
             if retry_after:
                 try:
-                    return max(delay, float(retry_after))
+                    return min(max(delay, float(retry_after)), 10.0)
                 except (TypeError, ValueError):
                     pass
-        delay = max(delay, 10.0 * (attempt + 1))
+        delay = max(delay, 2.0 * (2 ** attempt))
     return delay
 
 
-def with_retry(max_retries: int = 3, base_delay: float = 1.0, retryable=None):
+def with_retry(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    retryable=None,
+    on_retry=None,
+):
     """指数退避重试装饰器，用于 LLM 调用。
 
     Args:
@@ -101,6 +107,9 @@ def with_retry(max_retries: int = 3, base_delay: float = 1.0, retryable=None):
         retryable: 可选判断函数 (Exception) -> bool，
                    返回 False 时立即抛出异常不做重试；
                    不传则所有异常都重试（保持旧行为）。
+        on_retry: 可选回调 (Exception, attempt, delay) -> None，
+                   每次决定重试后、等待前调用（attempt 为刚失败的 0 起始轮次），
+                   供调用级埋点记录重试次数与错误类型（C1）。
     """
     if retryable is None:
         retryable = lambda exc: True
@@ -126,6 +135,11 @@ def with_retry(max_retries: int = 3, base_delay: float = 1.0, retryable=None):
                             f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}): {e}, "
                             f"retrying in {delay:.1f}s"
                         )
+                        if on_retry is not None:
+                            try:
+                                on_retry(e, attempt, delay)
+                            except Exception as cb_err:  # 埋点回调不允许影响重试
+                                logger.warning(f"on_retry callback failed: {cb_err}")
                         await asyncio.sleep(delay)
             logger.error(f"LLM call failed after {max_retries + 1} attempts")
             raise last_exception

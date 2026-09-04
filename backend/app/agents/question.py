@@ -46,7 +46,8 @@ class QuestionAgent(BaseAgent):
     description = "基于当前会话状态自由问答"
 
     temperature = 0.3
-    max_tokens = 1024
+    # max_tokens 需足够大：MIMO 模型可能有内部思考链消耗 token，过小会导致输出为空
+    max_tokens = 4096
 
     def build_messages(self, **kwargs) -> list[Message]:
         state = kwargs.get("state", {})

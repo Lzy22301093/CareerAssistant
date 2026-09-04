@@ -1,0 +1,20 @@
+/*
+ * Global Reset — 锁死根节点高度，保证 flex 子链正确传递
+ */
+
+/* 三件套：html / body / #app 全部撑满视口、禁止溢出滚动 */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 浏览器默认 body 有 8px margin，必须清零 */
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

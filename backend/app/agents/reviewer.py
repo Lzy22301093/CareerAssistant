@@ -48,10 +48,12 @@ class ReviewerAgent(BaseAgent):
     name = "reviewer"
     description = "评审简历质量"
 
-    # 提取/评审类 Agent：低温度保证稳定，输出较小
+    # 提取/评审类 Agent：低温度保证稳定
+    # max_tokens 需足够大：MIMO 模型可能有内部思考链消耗 token，过小会导致输出为空
     temperature = 0.2
-    max_tokens = 2048
+    max_tokens = 8192
     max_parse_attempts = 2  # JSON 解析失败自动修复重试一次
+    json_mode = True
 
     def build_messages(self, **kwargs) -> list[Message]:
         from app.tools.context import compact_jd, compact_profile, compact_resume_content

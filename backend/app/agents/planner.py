@@ -1,7 +1,7 @@
-"""Planner Agent — 路由决策（已弃用，保留用于向后兼容）。
+"""Planner Agent — 容器 Agent，提供 LLM 实例供 planner_node 使用。
 
-注意：此 Agent 已被规则引擎替代，不再使用 LLM 调用。
-规则引擎实现在 app/graph/edges.py 的 rule_based_route() 函数中。
+v4 架构：planner_node 使用 classify_intent() + build_execution_plan() 做路由，
+本 Agent 的 build_messages/parse_response 不再直接使用，但 .llm 仍被 planner_node 引用。
 """
 
 from __future__ import annotations

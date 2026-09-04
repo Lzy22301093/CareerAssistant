@@ -195,6 +195,118 @@ export interface UserPreferences {
   extra: Record<string, unknown>
 }
 
+// === 个人画像 / 知识库（阶段0 指令0-3） ===
+
+export type ProfileCategory =
+  | 'basic_info'
+  | 'education'
+  | 'experience'
+  | 'skill'
+  | 'target'
+  | 'soft'
+  | 'interview_feedback'
+
+export type ProfileItemType = 'fact' | 'suggestion' | 'feedback'
+
+export type ProfileVisibility = 'resume' | 'interview' | 'resume_interview' | 'private'
+
+export type ProfileStatus = 'confirmed' | 'suggested' | 'rejected' | 'archived'
+
+export interface ProfileEvidence {
+  id: number
+  source_type: string
+  source_id?: string
+  quote?: string
+  verified_by_user: boolean
+  created_at: string
+}
+
+export interface ProfileItem {
+  id: number
+  category: ProfileCategory
+  title: string
+  content?: string
+  item_type: ProfileItemType
+  confidence: number
+  visibility: ProfileVisibility
+  status: ProfileStatus
+  sort_order: number
+  evidences: ProfileEvidence[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ProfileItemCreate {
+  category: ProfileCategory
+  title: string
+  content?: string
+  item_type?: ProfileItemType
+  confidence?: number
+  visibility?: ProfileVisibility
+  status?: ProfileStatus
+}
+
+export interface ProfileItemUpdate {
+  category?: ProfileCategory
+  title?: string
+  content?: string
+  item_type?: ProfileItemType
+  confidence?: number
+  visibility?: ProfileVisibility
+  status?: ProfileStatus
+  sort_order?: number
+}
+
+export interface CategorySummary {
+  category: ProfileCategory
+  count: number
+  confirmed: number
+  suggested: number
+}
+
+export interface ProfileUpdateProposal {
+  id: number
+  report_id?: string
+  change_type: string
+  target_profile_item_id?: number
+  before_value?: string
+  after_value?: string
+  reason?: string
+  status: string
+  created_at: string
+}
+
+// === 模拟面试（文字版，阶段1 指令1-3） ===
+
+export interface InterviewStartParams {
+  jd_analysis: Record<string, unknown>
+  profile: Record<string, unknown>
+  referenced_questions?: string[]
+  max_turns?: number
+}
+
+export interface InterviewStartResponse {
+  interview_id: string
+  question: string
+}
+
+export interface InterviewAnswerResponse {
+  question?: string | null
+  is_complete: boolean
+  report?: Record<string, unknown> | null
+}
+
+export interface InterviewState {
+  interview_id: string
+  is_active: boolean
+  is_complete: boolean
+  turn_count: number
+  phase: string
+  current_question: string
+  dimension_scores: Record<string, number>
+  difficulty_level: string
+}
+
 // === 文件上传 ===
 
 export interface UploadedFile {

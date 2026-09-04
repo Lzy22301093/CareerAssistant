@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.graph import get_graph
 from app.llm import create_llm_provider
+from app.llm.observability import MAX_SESSION_RECORDS, start_llm_capture, summarize_calls
 from app.tools.file_tools import FileParserTool
 from app.models.schemas import (
     JDAnalysis,
@@ -93,8 +94,13 @@ def _new_session_data(session_id: str) -> dict[str, Any]:
         "profile_input_version": 0,
         "jd_input_hash": "",
         "resume_input_hash": "",
+        # 缓存解析后的文本（避免每次消息都重新解析文件）
+        "jd_text": "",
+        "resume_text": "",
         "cover_letter_channel": "",
         "interview_draft": {},
+        "execution_plan": [],
+        "triggered_agents": [],
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
     }
@@ -117,6 +123,7 @@ async def _parse_uploaded_files(session: dict[str, Any]) -> tuple[str | None, st
     """解析会话中上传的文件，返回 (jd_text, resume_text)。
 
     优先使用用户指定的 doc_type，否则根据文件名和会话状态推断。
+    支持缓存：如果会话中已有解析后的文本且没有新文件上传，直接使用缓存。
     """
     file_parser = FileParserTool()
     jd_text = None
@@ -125,6 +132,16 @@ async def _parse_uploaded_files(session: dict[str, Any]) -> tuple[str | None, st
 
     uploaded_files = session.get("uploaded_files", [])
     logger.info(f"[ParseFiles] 会话有 {len(uploaded_files)} 个上传文件")
+
+    # 检查是否有新上传的文件（通过比较 uploaded_files 数量与已解析的文件数量）
+    # 如果没有新文件且已有缓存文本，直接使用缓存
+    cached_jd = session.get("jd_text", "")
+    cached_resume = session.get("resume_text", "")
+    parsed_file_count = session.get("_parsed_file_count", 0)
+
+    if len(uploaded_files) == parsed_file_count and (cached_jd or cached_resume):
+        logger.info(f"[ParseFiles] 使用缓存文本: jd_text={len(cached_jd)}字符, resume_text={len(cached_resume)}字符")
+        return cached_jd or None, cached_resume or None
 
     for file_info in uploaded_files:
         file_path = file_info.get("file_path")
@@ -190,13 +207,46 @@ async def _parse_uploaded_files(session: dict[str, Any]) -> tuple[str | None, st
                     logger.info(f"[ParseFiles] 使用为 JD（会话已有简历）: {filename}")
                 else:
                     # 4. 默认：如果只有一个文件，尝试根据内容判断
-                    # 简单启发式：包含"教育背景"或"工作经历"的更可能是简历
-                    if any(keyword in text for keyword in ["教育背景", "工作经历", "项目经历", "实习经历"]):
+                    # 改进的启发式：检查中英文简历关键词，更全面的匹配
+                    resume_keywords = [
+                        # 中文关键词
+                        "教育背景", "工作经历", "项目经历", "实习经历", "个人简历",
+                        "专业技能", "自我评价", "求职意向", "所获荣誉", "校园经历",
+                        # 英文关键词
+                        "education", "experience", "projects", "skills", "objective",
+                        "summary", "qualifications", "employment", "work history",
+                        "certifications", "awards", "references",
+                    ]
+                    jd_keywords = [
+                        # 中文 JD 关键词
+                        "职位描述", "岗位职责", "任职要求", "工作职责", "招聘要求",
+                        "薪资待遇", "工作地点", "汇报对象", "下属人数",
+                        # 英文 JD 关键词
+                        "job description", "responsibilities", "requirements", "qualifications",
+                        "we are looking for", "join our team", "about the role",
+                    ]
+
+                    text_lower = text.lower()
+                    resume_score = sum(1 for kw in resume_keywords if kw in text_lower)
+                    jd_score = sum(1 for kw in jd_keywords if kw in text_lower)
+
+                    # 如果简历关键词匹配更多，识别为简历
+                    if resume_score > jd_score:
                         resume_text = text
-                        logger.info(f"[ParseFiles] 使用为简历（内容匹配）: {filename}")
-                    else:
+                        logger.info(f"[ParseFiles] 使用为简历（内容匹配，简历关键词 {resume_score} 个 vs JD 关键词 {jd_score} 个）: {filename}")
+                    elif jd_score > resume_score:
                         jd_text = text
-                        logger.info(f"[ParseFiles] 使用为 JD（默认）: {filename}")
+                        logger.info(f"[ParseFiles] 使用为 JD（内容匹配，JD 关键词 {jd_score} 个 vs 简历关键词 {resume_score} 个）: {filename}")
+                    else:
+                        # 关键词匹配相等或都没有匹配，使用长度和格式启发式
+                        # 简历通常更长且包含更多个人信息
+                        has_contact_info = any(kw in text_lower for kw in ["@", "电话", "手机", "email", "phone", "tel"])
+                        if has_contact_info or len(text) > 2000:
+                            resume_text = text
+                            logger.info(f"[ParseFiles] 使用为简历（启发式判断：{'有联系方式' if has_contact_info else '文本较长'}）: {filename}")
+                        else:
+                            jd_text = text
+                            logger.info(f"[ParseFiles] 使用为 JD（默认）: {filename}")
 
     # 记录解析结果摘要
     logger.info(f"[ParseFiles] 解析完成: jd_text={'有' if jd_text else '无'}({len(jd_text) if jd_text else 0}字符), resume_text={'有' if resume_text else '无'}({len(resume_text) if resume_text else 0}字符)")
@@ -380,6 +430,23 @@ async def get_session_status(session_id: str):
     }
 
 
+@router.get("/{session_id}/trace")
+async def get_session_trace(session_id: str):
+    """会话 LLM 调用轨迹（C1 观测埋点）。
+
+    返回最近 MAX_SESSION_RECORDS 条调用记录（agent/模型/延迟/token/重试/错误分类），
+    用于事后排查耗时构成与成本，无需复跑请求。
+    """
+    store = await get_store()
+    session = await store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return {
+        "session_id": session_id,
+        "llm_calls": session.get("llm_calls") or [],
+    }
+
+
 @router.post("/{session_id}/messages")
 async def send_message(session_id: str, request: MessageRequest):
     """发送消息并触发 Graph 执行，通过 SSE 流式返回结果。"""
@@ -401,6 +468,16 @@ async def send_message(session_id: str, request: MessageRequest):
         })
         session["updated_at"] = datetime.now().isoformat()
         await store.update(session_id, {"messages": session["messages"], "updated_at": session["updated_at"]})
+
+        # 如果有活跃面试，转发消息到面试处理器
+        active_interview_id = session.get("active_interview_id")
+        if active_interview_id:
+            lock.release()
+            return StreamingResponse(
+                _interview_text_stream(active_interview_id, request.content, session, store, session_id),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+            )
     except Exception:
         lock.release()
         raise
@@ -410,8 +487,19 @@ async def send_message(session_id: str, request: MessageRequest):
         result: dict[str, Any] = {}  # 初始化结果字典，用于异常处理时保存部分结果
         merged_updates: dict[str, Any] = {}  # 流式各节点的增量更新累计
         try:
-            # 解析上传的文件
+            # 解析上传的文件（支持缓存）
             jd_text, resume_text = await _parse_uploaded_files(session)
+
+            # 缓存解析后的文本到会话（避免下次重新解析文件）
+            session["jd_text"] = jd_text or ""
+            session["resume_text"] = resume_text or ""
+            session["_parsed_file_count"] = len(session.get("uploaded_files", []))
+            # 立即持久化缓存文本（中断时也不丢失）
+            await store.update(session_id, {
+                "jd_text": session["jd_text"],
+                "resume_text": session["resume_text"],
+                "_parsed_file_count": session["_parsed_file_count"],
+            })
 
             # 增量编辑（v3）：检测输入变化 → 递增对应输入版本（级联重算的触发源）
             session_jiv = session.get("jd_input_version", 0)
@@ -441,8 +529,6 @@ async def send_message(session_id: str, request: MessageRequest):
                     logger.warning(f"[Memory] 读取档案失败: {mem_err}")
 
             # 构建初始状态
-            # 注意：必须把澄清历史/就绪标记/上传文件等字段一并传入，
-            # 否则 Clarifier 多轮决策和文件解析兜底逻辑都会"失忆"。
             graph_state = {
                 "user_message": request.content,
                 "session_id": session_id,
@@ -454,14 +540,11 @@ async def send_message(session_id: str, request: MessageRequest):
                 "resume_content": session["resume_content"] or {},
                 "render_config": session["render_config"] or {},
                 "interview_questions": session["interview_questions"] or {},
-                "clarification_history": session.get("clarification_history", []),
-                "clarification_question": session.get("clarification_question", ""),
-                "ready_to_proceed": session.get("ready_to_proceed", False),
                 "uploaded_files": session.get("uploaded_files", []),
                 "content_iterations": session.get("content_iterations", 0),
+                "execution_plan": [],
                 "jd_input_version": jd_input_version,
                 "profile_input_version": profile_input_version,
-                # 下游基于版本（v3）：从会话读入，缺省 -1（从未分析）→ 强制重算
                 "jd_analyzed_version": session.get("jd_analyzed_version", -1),
                 "profile_analyzed_version": session.get("profile_analyzed_version", -1),
                 "gap_based_jd": session.get("gap_based_jd", -1),
@@ -475,6 +558,21 @@ async def send_message(session_id: str, request: MessageRequest):
                 "memory_summary": memory_summary,
                 "messages": session["messages"],
             }
+
+            # 已确认画像条目 → 覆盖/增强 profile 上下文（阶段1 指令1-4）
+            if session.get("user_id"):
+                try:
+                    from app.models.database import SessionLocal as _SLocal
+                    from app.services.profile_service import build_profile_context
+                    _pdb = _SLocal()
+                    try:
+                        confirmed_profile = build_profile_context(_pdb, session["user_id"])
+                    finally:
+                        _pdb.close()
+                    if confirmed_profile:
+                        graph_state["profile"] = {**(session["profile"] or {}), **confirmed_profile}
+                except Exception as _p_err:
+                    logger.warning(f"[Profile] 读取已确认画像上下文失败: {_p_err}")
 
             # 记录关键状态信息
             logger.info(f"[SendMessage] 会话 {session_id} 状态:")
@@ -492,6 +590,10 @@ async def send_message(session_id: str, request: MessageRequest):
             llm = create_llm_provider()
             graph = get_graph(llm)
 
+            # C1 调用级埋点：捕获本次请求全部 LLM 调用（含并行节点与图后 consolidate）
+            llm_calls = start_llm_capture()
+            llm_calls_sent = 0
+
             async for chunk in _graph_stream(graph, graph_state, settings.graph_timeout):
                 # chunk 形如 {"node_name": {字段: 值, ...}}
                 for node_name, updates in chunk.items():
@@ -507,9 +609,23 @@ async def send_message(session_id: str, request: MessageRequest):
                             "reason": updates.get("intent_reason", ""),
                             "plan": updates.get("execution_plan", []),
                         })
+                        # interview_sim 意图拦截：启动面试，不走后续图节点
+                        if updates["intent"] == "interview_sim":
+                            async for evt in _handle_interview_sim(session, graph_state):
+                                yield evt
+                            # 面试已启动，跳过后续图执行
+                            yield _sse_event("done", {
+                                "stage": "interview",
+                                "message": "模拟面试已启动，请通过语音或文字继续。",
+                            })
+                            return
                     # 节点 trace
                     for tr in (updates.get("workflow_trace") or []):
                         yield _sse_event("trace", tr)
+                    # LLM 调用级埋点（C1）：推送此阶段新完成的调用记录
+                    while llm_calls_sent < len(llm_calls):
+                        yield _sse_event("llm_call", llm_calls[llm_calls_sent].to_dict())
+                        llm_calls_sent += 1
                     # 实时推送该节点产出的关键数据
                     for key, event_name in _NODE_EVENT_MAP.items():
                         if updates.get(key):
@@ -553,10 +669,13 @@ async def send_message(session_id: str, request: MessageRequest):
                     logger.warning(f"[Memory] consolidate 失败 user={user_id}: {mem_err}")
 
             # 面试记录（M3）：多轮追问完成后入库 + 失败教训更新 gaps
+            draft = result.get("interview_draft", {})
             if (
                 result.get("intent") == "record_interview"
-                and result.get("ready_to_proceed")
-                and result.get("interview_draft")
+                and draft
+                and draft.get("company")
+                and draft.get("job_title")
+                and draft.get("result")
             ):
                 if user_id:
                     try:
@@ -587,6 +706,18 @@ async def send_message(session_id: str, request: MessageRequest):
                 except Exception as plan_err:
                     logger.warning(f"[Memory] 复习计划生成失败: {plan_err}")
 
+            # LLM 埋点收尾（C1）：推送尾部调用记录（consolidate / review_plan 阶段），
+            # 汇总随 done 事件下发；记录截断持久化到会话，供 /trace 接口回查
+            while llm_calls_sent < len(llm_calls):
+                yield _sse_event("llm_call", llm_calls[llm_calls_sent].to_dict())
+                llm_calls_sent += 1
+            llm_summary = summarize_calls(llm_calls)
+            if llm_summary["total_calls"]:
+                history = (session.get("llm_calls") or []) + [r.to_dict() for r in llm_calls]
+                history = history[-MAX_SESSION_RECORDS:]
+                session["llm_calls"] = history
+                await store.update(session_id, {"llm_calls": history})
+
             # 发送路由信息（若本轮产生）
             if result.get("route"):
                 yield _sse_event("route", {
@@ -599,8 +730,11 @@ async def send_message(session_id: str, request: MessageRequest):
                 if result.get(key) and not merged_updates.get(key):
                     yield _sse_event(event_name, result[key])
 
-            # 记录助手回复
+            # 记录助手回复（含执行轨迹）
             assistant_content = _build_assistant_message(result)
+            trace_reply = _build_trace_reply(result)
+            if trace_reply:
+                assistant_content = assistant_content + "\n\n" + trace_reply
             session["messages"].append({
                 "role": "assistant",
                 "content": assistant_content,
@@ -608,11 +742,15 @@ async def send_message(session_id: str, request: MessageRequest):
             })
             await store.update(session_id, {"messages": session["messages"]})
 
-            # 发送完成事件
-            yield _sse_event("done", {
+            # 发送完成事件（附 LLM 调用汇总 + triggered_agents）
+            done_payload: dict[str, Any] = {
                 "stage": session["stage"],
                 "message": assistant_content,
-            })
+                "triggered_agents": session.get("triggered_agents", []),
+            }
+            if llm_summary["total_calls"]:
+                done_payload["llm_summary"] = llm_summary
+            yield _sse_event("done", done_payload)
 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
@@ -625,6 +763,22 @@ async def send_message(session_id: str, request: MessageRequest):
                 "hint": error_hint,
                 "category": category,
             })
+
+            # 失败路径同样推送/落盘已捕获的 LLM 调用记录（C1）：
+            # 超时或异常时定位卡在哪次调用；图启动前失败则无记录可推（跳过）
+            try:
+                if llm_calls:
+                    while llm_calls_sent < len(llm_calls):
+                        yield _sse_event("llm_call", llm_calls[llm_calls_sent].to_dict())
+                        llm_calls_sent += 1
+                    history = (session.get("llm_calls") or []) + [
+                        r.to_dict() for r in llm_calls
+                    ]
+                    await store.update(
+                        session_id, {"llm_calls": history[-MAX_SESSION_RECORDS:]}
+                    )
+            except (NameError, UnboundLocalError):
+                pass
 
             # 兜底保存已处理的部分结果（流式循环已即时持久化节点产物，
             # 这里再覆盖一次澄清/状态字段，双保险幂等无害）
@@ -756,6 +910,44 @@ async def export_resume(session_id: str, request: ExportRequest):
     raise HTTPException(status_code=400, detail="不支持的导出格式，可选 html / json / md")
 
 
+@router.post("/{session_id}/voice-chat")
+async def start_voice_chat(session_id: str):
+    """启动 AI 模拟面试语音对话，返回 WebSocket URL。
+
+    前端收到后连接 /ws/voice-chat 并发送 START 消息。
+    """
+    store = await get_store()
+    session = await store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    jd_analysis = session.get("jd_analysis")
+    if not jd_analysis:
+        raise HTTPException(status_code=400, detail="请先上传或分析 JD 后再开始语音对话")
+
+    return {
+        "ws_url": "/ws/voice-chat",
+        "session_id": session_id,
+    }
+
+
+@router.post("/{session_id}/voice-chat/feedback")
+async def voice_chat_feedback(session_id: str, chat_session_id: str):
+    """获取语音对话的反馈报告。"""
+    from app.voice.gateway import _chat_handler
+    if _chat_handler is None:
+        raise HTTPException(status_code=503, detail="语音对话服务未初始化")
+
+    try:
+        report = await _chat_handler.get_feedback(chat_session_id)
+        return report
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Voice chat feedback failed: {e}")
+        raise HTTPException(status_code=500, detail="反馈生成失败")
+
+
 @router.delete("/{session_id}")
 async def delete_session(session_id: str):
     """删除会话。"""
@@ -772,19 +964,17 @@ async def delete_session(session_id: str):
 # 节点 → 用户可见的进度文案（流式推送用）
 _NODE_LABELS = {
     "planner": "理解意图并规划任务",
+    "plan_advance": "推进执行计划",
     "jd_analyzer": "分析职位描述",
     "profile_extractor": "提取简历画像",
     "gap_analyzer": "进行匹配度分析",
     "content_generator": "生成简历内容",
-    "parallel_analysis": "并行分析 JD 与简历",
-    "parallel_post": "评审简历并生成面试题",
-    "reviewer": "评审简历质量",
     "interview_qa": "生成面试题",
-    "interview_reviewer": "评审面试题",
     "html_renderer": "渲染简历 HTML",
-    "clarifier": "澄清需求",
     "question": "回答你的问题",
     "cover_letter": "生成求职文案",
+    "interview_sim": "启动模拟面试",
+    "clarifier": "记录面试信息",
 }
 
 # 节点更新字段 → SSE 事件名（节点产出即实时推送）
@@ -795,7 +985,6 @@ _NODE_EVENT_MAP = {
     "resume_content": "resume_content",
     "render_config": "render_config",
     "interview_questions": "interview_questions",
-    "clarification_question": "clarification",
     "answer": "answer",
     "cover_letter": "cover_letter",
 }
@@ -809,13 +998,15 @@ _PERSIST_FIELDS = (
     "resume_content",
     "render_config",
     "interview_questions",
-    "clarification_question",
-    "clarification_history",
-    "ready_to_proceed",
     "content_iterations",
     "cover_letter",
     "cover_letter_channel",
     "interview_draft",
+    "execution_plan",
+    # 缓存解析后的文本（避免每次消息都重新解析文件）
+    "jd_text",
+    "resume_text",
+    "_parsed_file_count",
 )
 
 
@@ -845,6 +1036,90 @@ async def _graph_stream(graph, state: dict, total_timeout: float):
 def _sse_event(event: str, data: dict[str, Any]) -> str:
     """构造 SSE 事件字符串。"""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _interview_text_stream(
+    interview_id: str,
+    user_message: str,
+    session: dict[str, Any],
+    store: SessionStore,
+    session_id: str,
+):
+    """文字模式面试消息流（面试激活时替代主图）。"""
+    try:
+        from app.api.interview import _get_handler
+        handler = _get_handler()
+    except Exception:
+        yield _sse_event("error", {"detail": "面试服务未初始化", "category": "service"})
+        return
+
+    yield _sse_event("start", {"message": "正在处理回答..."})
+
+    try:
+        result = await handler.process_answer(interview_id, user_message)
+
+        question = result.get("question") or ""
+        is_complete = result.get("is_complete", False)
+        report = result.get("report")
+
+        if question:
+            yield _sse_event("interview_question", {"question": question})
+
+        if is_complete:
+            # 面试结束，清除活跃面试 ID
+            session.pop("active_interview_id", None)
+            await store.update(session_id, {"active_interview_id": None})
+
+            # 保存面试报告到跨会话记忆
+            user_id = session.get("user_id")
+            if user_id and report:
+                try:
+                    from app.services.interview_memory import InterviewMemoryService
+                    svc = InterviewMemoryService()
+                    draft = {
+                        "company": report.get("target_position", ""),
+                        "position": report.get("target_position", ""),
+                        "source": "mock",
+                        "result": "completed",
+                        "feedback": report.get("summary", ""),
+                        "lessons": report.get("suggestions", []),
+                    }
+                    svc.record_interview(user_id, draft)
+                    logger.info(f"[Memory] user={user_id} 模拟面试结果已入库")
+                except Exception as mem_err:
+                    logger.warning(f"[Memory] 模拟面试结果入库失败: {mem_err}")
+
+            yield _sse_event("interview_done", {"report": report})
+
+        yield _sse_event("done", {
+            "stage": "interview" if not is_complete else "complete",
+            "message": question or "面试已结束",
+        })
+
+    except ValueError as e:
+        yield _sse_event("error", {"detail": str(e), "category": "not_found"})
+    except Exception as e:
+        logger.error(f"[InterviewText] error: {e}", exc_info=True)
+        yield _sse_event("error", {"detail": str(e), "category": "service"})
+
+
+async def _handle_interview_sim(session: dict[str, Any], graph_state: dict[str, Any]):
+    """处理 interview_sim 意图：通知前端启动面试。
+
+    不在此处启动面试（InterviewHandler.start_interview），
+    而是让前端 VoiceInterviewPanel 通过 WebSocket 发送 START 消息启动，
+    这样 jd_analysis + profile 可以通过 WS 传递，无需前端额外请求。
+    """
+    jd_analysis = session.get("jd_analysis") or {}
+    if not jd_analysis:
+        yield _sse_event("error", {"detail": "请先上传或分析 JD 后再开始模拟面试", "category": "data"})
+        return
+
+    # 推送面试启动事件（前端收到后连接 WS 并发送 START）
+    yield _sse_event("interview_started", {
+        "ws_url": "/ws/interview",
+    })
+    logger.info("[InterviewSim] signaled frontend to start interview via WS")
 
 
 def _classify_error(exc: Exception) -> tuple[str, str]:
@@ -913,19 +1188,6 @@ def _build_session_updates(session: dict, result: dict) -> dict[str, Any]:
         updates["interview_questions"] = result["interview_questions"]
         updates["stage"] = session["stage"]
 
-    # 澄清状态与迭代计数也需要持久化（此前遗漏，导致多轮澄清失忆）
-    if result.get("clarification_history") is not None:
-        session["clarification_history"] = result["clarification_history"]
-        updates["clarification_history"] = result["clarification_history"]
-
-    if result.get("clarification_question"):
-        session["clarification_question"] = result["clarification_question"]
-        updates["clarification_question"] = result["clarification_question"]
-
-    if result.get("ready_to_proceed") is not None:
-        session["ready_to_proceed"] = result["ready_to_proceed"]
-        updates["ready_to_proceed"] = result["ready_to_proceed"]
-
     if result.get("content_iterations"):
         session["content_iterations"] = result["content_iterations"]
         updates["content_iterations"] = result["content_iterations"]
@@ -955,16 +1217,52 @@ def _build_session_updates(session: dict, result: dict) -> dict[str, Any]:
         session["interview_draft"] = result["interview_draft"]
         updates["interview_draft"] = result["interview_draft"]
 
+    # 缓存解析后的文本（避免每次消息都重新解析文件）
+    if result.get("jd_text") is not None:
+        session["jd_text"] = result["jd_text"]
+        updates["jd_text"] = result["jd_text"]
+    if result.get("resume_text") is not None:
+        session["resume_text"] = result["resume_text"]
+        updates["resume_text"] = result["resume_text"]
+    if result.get("_parsed_file_count") is not None:
+        session["_parsed_file_count"] = result["_parsed_file_count"]
+        updates["_parsed_file_count"] = result["_parsed_file_count"]
+
+    # triggered_agents（调试 Tab 用）
+    if result.get("workflow_trace"):
+        session["triggered_agents"] = [t.get("node", "?") for t in result["workflow_trace"] if t.get("node")]
+        updates["triggered_agents"] = session["triggered_agents"]
+
     updates["updated_at"] = datetime.now().isoformat()
     return updates
+
+
+def _build_trace_reply(state: dict) -> str:
+    """从 workflow_trace 构建 markdown 执行过程。
+
+    参考项目 _build_trace_reply 的等价实现：
+    遍历 workflow_trace 列表，拼成 markdown 文本作为助手回复的一部分。
+    """
+    trace = state.get("workflow_trace", [])
+    if not trace:
+        return ""
+
+    lines = ["", "**执行过程**"]
+    for i, entry in enumerate(trace, 1):
+        name = entry.get("node", "?")
+        status = entry.get("status", "?")
+        summary = entry.get("output_summary", "")
+        latency = entry.get("latency_ms", 0)
+        dur_str = f"（{int(latency)}ms）" if latency else ""
+        status_icon = "✅" if status == "success" else "⏭️" if status == "skipped" else "❌"
+        lines.append(f"{i}. {status_icon} {name}{dur_str}：{summary}")
+
+    return "\n".join(lines)
 
 
 def _build_assistant_message(result: dict) -> str:
     """从 Graph 结果构建助手回复文本。"""
     parts = []
-
-    if result.get("clarification_question"):
-        return result["clarification_question"]
 
     # 自由问答（v3）：直接返回答案
     if result.get("answer"):
@@ -979,11 +1277,12 @@ def _build_assistant_message(result: dict) -> str:
         if cl.get("subject"):
             parts.append(f"主题：{cl['subject']}")
 
-    # 面试记录（M3）：收集完成给出确认，否则由 clarification_question 引导
+    # 面试记录（M3）：收集完成给出确认，否则继续追问
     if result.get("intent") == "record_interview":
-        if result.get("ready_to_proceed"):
+        draft = result.get("interview_draft", {})
+        if draft.get("company") and draft.get("job_title") and draft.get("result"):
             return "已记录这次面试！失分点已加入你的求职档案，下次面试前我会帮你针对性复习。"
-        return "正在记录面试信息，请继续补充。"
+        return result.get("answer", "") or "正在记录面试信息，请继续补充。"
 
     if result.get("route") == "jd_analyzer" and result.get("jd_analysis"):
         jd = result["jd_analysis"]

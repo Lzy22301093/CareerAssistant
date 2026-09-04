@@ -15,8 +15,26 @@ const router = createRouter({
     },
     {
       path: '/',
-      name: 'home',
+      name: 'feature-wall',
+      component: () => import('../views/FeatureWallView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/workspace',
+      name: 'workspace',
       component: () => import('../views/HomePage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/knowledge-base',
+      name: 'knowledge-base',
+      component: () => import('../views/KnowledgeBaseView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mock-interview',
+      name: 'mock-interview',
+      component: () => import('../views/MockInterviewView.vue'),
       meta: { requiresAuth: true },
     },
   ],
@@ -29,7 +47,7 @@ router.beforeEach((to) => {
     return { name: 'login' }
   }
   if ((to.name === 'login' || to.name === 'register') && token) {
-    return { name: 'home' }
+    return { name: 'feature-wall' }
   }
   return true
 })

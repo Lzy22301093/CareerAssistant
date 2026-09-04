@@ -21,8 +21,17 @@ class OpenAIProvider:
         api_key: str,
         base_url: str | None = None,
         model: str = "mimo-v2.5-pro",
+        timeout: float | None = None,
     ):
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        # timeout + max_retries=0（A3）：SDK 默认 timeout 600s / 内置重试 2 次，
+        # 会与 with_retry 装饰器叠加导致单次调用最坏拖数分钟；
+        # 重试统一交给装饰器（错误类型感知），SDK 层快速失败。
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=0,
+        )
         self.model = model
 
     def _convert_messages(self, messages: list[Message]) -> list[dict]:
@@ -63,6 +72,7 @@ class OpenAIProvider:
         temperature: float = 0.7,
         max_tokens: int = 4096,
         model: str | None = None,
+        json_mode: bool = False,
     ) -> Response:
         kwargs: dict = {
             "model": model or self.model,
@@ -72,6 +82,8 @@ class OpenAIProvider:
         }
         if tools:
             kwargs["tools"] = self._convert_tools(tools)
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
 
         completion = await self.client.chat.completions.create(**kwargs)
         choice = completion.choices[0]

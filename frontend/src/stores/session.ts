@@ -23,6 +23,19 @@ export interface ChatMessage {
   eventType?: string
 }
 
+function formatInterviewReport(data: Record<string, unknown>): string {
+  const lines: string[] = ['📊 **面试评估报告**\n']
+  const overall = data.overall_assessment as Record<string, unknown> | undefined
+  if (overall) {
+    lines.push(`综合评分：**${overall.total_score || 0}/100**`)
+    lines.push(`等级：${overall.grade || '-'}`)
+    if (overall.strengths) lines.push(`\n**优势：** ${(overall.strengths as string[])?.join('、')}`)
+    if (overall.weaknesses) lines.push(`**不足：** ${(overall.weaknesses as string[])?.join('、')}`)
+    if (overall.suggestion) lines.push(`\n💡 ${overall.suggestion}`)
+  }
+  return lines.join('\n')
+}
+
 export const useSessionStore = defineStore('session', () => {
   const sessionId = ref('')
   const stage = ref<SessionStage>('init')
@@ -39,6 +52,17 @@ export const useSessionStore = defineStore('session', () => {
   const renderConfig = ref<RenderConfig | null>(null)
   const coverLetter = ref<Record<string, unknown> | null>(null)
   const lastAnswer = ref('')
+
+  // 模拟面试状态
+  const interviewActive = ref(false)
+  const interviewWsUrl = ref('')
+
+  // AI 语音对话状态
+  const voiceChatActive = ref(false)
+  const voiceChatWsUrl = ref('')
+
+  // 调试数据
+  const triggeredAgents = ref<string[]>([])
 
   // 活跃 tab（ResultPanel 用）
   const activeTab = ref('jd')
@@ -65,6 +89,11 @@ export const useSessionStore = defineStore('session', () => {
     renderConfig.value = null
     coverLetter.value = null
     lastAnswer.value = ''
+    interviewActive.value = false
+    interviewWsUrl.value = ''
+    voiceChatActive.value = false
+    voiceChatWsUrl.value = ''
+    triggeredAgents.value = []
     activeTab.value = 'jd'
     isLoading.value = false
 
@@ -234,19 +263,16 @@ export const useSessionStore = defineStore('session', () => {
       case 'render_config':
         renderConfig.value = data as unknown as RenderConfig
         break
-      case 'clarification':
-        addMessage({
-          role: 'assistant',
-          content: ((data as Record<string, unknown>).question || (data as Record<string, unknown>).content) as string || '请提供更多信息',
-          timestamp: new Date().toISOString(),
-          eventType: 'clarification',
-        })
-        break
       case 'done':
         stage.value = ((data as Record<string, unknown>).stage as SessionStage) || stage.value
+        // 更新 triggered_agents（调试 Tab 用）
+        const doneData = data as Record<string, unknown>
+        if (doneData.triggered_agents) {
+          triggeredAgents.value = doneData.triggered_agents as string[]
+        }
         addMessage({
           role: 'system',
-          content: (data as Record<string, unknown>).message as string || '处理完成',
+          content: doneData.message as string || '处理完成',
           timestamp: new Date().toISOString(),
           eventType: 'done',
         })
@@ -273,6 +299,47 @@ export const useSessionStore = defineStore('session', () => {
           content: `🔀 ${(data as Record<string, unknown>).reason || '正在处理...'}`,
           timestamp: new Date().toISOString(),
           eventType: 'route',
+        })
+        break
+      case 'interview_started': {
+        // 模拟面试启动（前端收到后连接 WS 并发送 START）
+        interviewActive.value = true
+        interviewWsUrl.value = (data as Record<string, unknown>).ws_url as string || '/ws/interview'
+        addMessage({
+          role: 'system',
+          content: `🎤 模拟面试已启动`,
+          timestamp: new Date().toISOString(),
+          eventType: 'interview_started',
+        })
+        isLoading.value = false
+        break
+      }
+      case 'interview_ended':
+        // 模拟面试结束
+        interviewActive.value = false
+        addMessage({
+          role: 'system',
+          content: `✅ 模拟面试结束`,
+          timestamp: new Date().toISOString(),
+          eventType: 'interview_ended',
+        })
+        break
+      case 'interview_answer':
+        // 面试官追问（文字模式）
+        addMessage({
+          role: 'assistant',
+          content: (data as Record<string, unknown>).content as string || '',
+          timestamp: new Date().toISOString(),
+          eventType: 'interview_answer',
+        })
+        break
+      case 'interview_report':
+        // 面试报告
+        addMessage({
+          role: 'assistant',
+          content: formatInterviewReport(data as Record<string, unknown>),
+          timestamp: new Date().toISOString(),
+          eventType: 'interview_report',
         })
         break
       case 'message':
@@ -387,6 +454,11 @@ export const useSessionStore = defineStore('session', () => {
     coverLetter,
     lastAnswer,
     activeTab,
+    interviewActive,
+    interviewWsUrl,
+    voiceChatActive,
+    voiceChatWsUrl,
+    triggeredAgents,
     createSession,
     loadSession,
     restoreSession,

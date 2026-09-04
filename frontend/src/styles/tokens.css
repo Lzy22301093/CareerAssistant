@@ -1,0 +1,169 @@
+/*
+ * CareerAssistant Design Tokens
+ *
+ * 所有视觉设计变量集中定义于此。
+ * 组件样式应引用这些变量，而非硬编码色值/间距等。
+ *
+ * 参考：DESIGN.md
+ */
+
+/* ============================================================
+   1. Color — Neutrals (偏暖灰/slate 色系)
+   ============================================================ */
+:root {
+  --color-gray-950: #0f1117;
+  --color-gray-900: #1a1d24;   /* 主要文字 */
+  --color-gray-700: #3d4250;   /* 次要文字 */
+  --color-gray-500: #6b7280;   /* 辅助文字、占位符 */
+  --color-gray-400: #9ca3af;   /* 禁用状态文字 */
+  --color-gray-300: #d1d5db;   /* 边框 */
+  --color-gray-200: #e5e7eb;   /* 分割线 */
+  --color-gray-100: #f3f4f6;   /* 表头背景、hover 背景 */
+  --color-gray-50:  #f9fafb;   /* 页面背景 */
+  --color-white:    #ffffff;   /* 卡片、输入框背景 */
+
+  /* ============================================================
+     2. Color — Accent (主题色，蓝色)
+     ============================================================ */
+  --color-accent-600: #2563eb;  /* 主按钮、链接、活跃状态 */
+  --color-accent-500: #3b82f6;  /* hover 状态 */
+  --color-accent-400: #60a5fa;  /* 浅色强调 */
+  --color-accent-100: #dbeafe;  /* 轻量背景 */
+  --color-accent-50:  #eff6ff;  /* 极轻背景 */
+
+  /* ============================================================
+     3. Color — Semantic (语义色)
+     ============================================================ */
+  --color-success-600: #16a34a;
+  --color-success-50:  #f0fdf4;
+
+  --color-warning-600: #ca8a04;
+  --color-warning-50:  #fefce8;
+
+  --color-danger-600: #dc2626;
+  --color-danger-50:  #fef2f2;
+
+  --color-info-600: #0284c7;
+  --color-info-50:  #f0f9ff;
+
+  /* ============================================================
+     3b. Color — Semantic Aliases (常用语义别名)
+     ============================================================ */
+  --color-bg:             var(--color-white);
+  --color-bg-page:        var(--color-gray-50);
+  --color-text-primary:   var(--color-gray-900);
+  --color-text-secondary: var(--color-gray-700);
+  --color-text-disabled:  var(--color-gray-400);
+  --color-border:         var(--color-gray-200);
+  --color-border-strong:  var(--color-gray-300);
+
+  --color-danger:         var(--color-danger-600);
+  --color-danger-light:   var(--color-danger-50);
+  --color-success:        var(--color-success-600);
+  --color-success-light:  var(--color-success-50);
+  --color-warning:        var(--color-warning-600);
+  --color-warning-light:  var(--color-warning-50);
+  --color-info:           var(--color-info-600);
+  --color-info-light:     var(--color-info-50);
+
+  /* ============================================================
+     4. Typography — Font Family
+     ============================================================ */
+  --font-sans:  'Noto Sans SC', 'IBM Plex Sans', 'Helvetica Neue',
+                'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+                Arial, sans-serif;
+  --font-serif: 'Noto Serif SC', 'Georgia', serif;
+  --font-mono:  'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+
+  /* ============================================================
+     5. Typography — Font Size
+     ============================================================ */
+  --text-2xs:  11px;   /* 时间戳、极次要元数据 */
+  --text-xs:   12px;   /* 标签文字、表格辅助信息 */
+  --text-sm:   13px;   /* 正文（对话消息、表格内容） */
+  --text-base: 14px;   /* 副标题、描述文字 */
+  --text-md:   16px;   /* 正文基准（简历内容） */
+  --text-lg:   20px;   /* 板块标题 */
+  --text-xl:   24px;   /* 页面级标题 */
+
+  /* ============================================================
+     6. Typography — Line Height
+     ============================================================ */
+  --leading-tight:  1.3;  /* 标题 */
+  --leading-normal: 1.5;  /* 表格 */
+  --leading-relaxed: 1.6; /* 正文 */
+
+  /* ============================================================
+     7. Typography — Font Weight
+     ============================================================ */
+  --weight-regular:        400;
+  --weight-medium:         500;
+  --weight-semibold:       600;
+  --font-weight-regular:   var(--weight-regular);
+  --font-weight-medium:    var(--weight-medium);
+  --font-weight-semibold:  var(--weight-semibold);
+
+  /* ============================================================
+     8. Spacing (基于 4px 基准)
+     ============================================================ */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:   12px;
+  --space-4:   16px;
+  --space-5:   20px;
+  --space-6:   24px;
+  --space-8:   32px;
+  --space-10:  40px;
+  --space-12:  48px;
+
+  /* ============================================================
+     9. Border Radius
+     ============================================================ */
+  --radius-sm:   2px;   /* 按钮、输入框、标签 */
+  --radius-md:   4px;   /* 卡片、表格、面板 */
+  --radius-lg:   6px;   /* 对话气泡、弹窗 */
+  --radius-full: 9999px; /* 圆形 */
+
+  /* ============================================================
+     10. Border
+     ============================================================ */
+  --border-light:  1px solid var(--color-gray-200);   /* 分割线、面板分隔 */
+  --border-medium: 1px solid var(--color-gray-300);   /* 输入框默认态 */
+
+  /* ============================================================
+     11. Shadow
+     ============================================================ */
+  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.04);   /* 下拉菜单、tooltip */
+  --shadow-md:  0 2px 8px rgba(0, 0, 0, 0.06);   /* 悬浮卡片、drawer */
+  --shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.08);  /* 模态框 */
+
+  /* ============================================================
+     12. Motion — Duration
+     ============================================================ */
+  --duration-fast:   100ms;
+  --duration-normal: 150ms;
+  --duration-slow:   250ms;
+
+  /* ============================================================
+     13. Motion — Easing
+     ============================================================ */
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in:      cubic-bezier(0.4, 0, 1, 1);
+  --ease-out:     cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* ============================================================
+   14. Keyframes — Skeleton Pulse (骨架屏用)
+   ============================================================ */
+@keyframes skeleton-pulse {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================================
+   15. Keyframes — Dot Pulse (加载脉动点用)
+   ============================================================ */
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: 0; }
+  40%           { opacity: 1; }
+}

@@ -125,6 +125,21 @@ class InterviewQuestion(BaseModel):
     sample_answer: str = Field(default="", description="Sample answer")
 
 
+class EvaluationDecision(BaseModel):
+    """Evaluator Agent 输出结构。"""
+    score: float = Field(..., ge=0, le=10)
+    dimension_scores: dict[str, float] = Field(default_factory=dict)
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    feedback: str = Field(default="")
+    next_action: str = Field(..., description="追问/切换话题/提高难度/降低难度/结束面试")
+    reason: str = Field(default="")
+    follow_up_question: str | None = None
+    next_topic: str | None = None
+    next_question: str | None = None
+    new_difficulty: str | None = None
+
+
 # === API Request/Response Models ===
 
 class SessionCreateResponse(BaseModel):
@@ -172,3 +187,88 @@ class ErrorResponse(BaseModel):
     """Error response."""
     detail: str = Field(..., description="Error message")
     code: str = Field(default="UNKNOWN_ERROR", description="Error code")
+
+
+# === 个人画像 / 知识库（阶段0 指令0-3） ===
+
+class ProfileEvidenceOut(BaseModel):
+    """画像条目证据输出。"""
+    id: int
+    source_type: str
+    source_id: str | None = None
+    quote: str | None = None
+    verified_by_user: bool = False
+    created_at: datetime
+
+
+class ProfileItemCreate(BaseModel):
+    """新建画像条目。"""
+    category: str = Field(..., description="分类")
+    title: str = Field(..., description="标题")
+    content: str | None = None
+    item_type: str = Field(default="fact", description="fact | suggestion | feedback")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    visibility: str = Field(default="resume_interview", description="resume | interview | resume_interview | private")
+    status: str = Field(default="confirmed", description="confirmed | suggested | rejected | archived")
+
+
+class ProfileItemUpdate(BaseModel):
+    """更新画像条目（部分字段）。"""
+    category: str | None = None
+    title: str | None = None
+    content: str | None = None
+    item_type: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    visibility: str | None = None
+    status: str | None = None
+    sort_order: int | None = None
+
+
+class ProfileItemOut(BaseModel):
+    """画像条目输出（含证据）。"""
+    id: int
+    category: str
+    title: str
+    content: str | None = None
+    item_type: str
+    confidence: float
+    visibility: str
+    status: str
+    sort_order: int
+    evidences: list[ProfileEvidenceOut] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class EvidenceCreate(BaseModel):
+    """为画像条目新增证据。"""
+    source_type: str = Field(..., description="user_input | resume | interview_report")
+    source_id: str | None = None
+    quote: str | None = None
+    verified_by_user: bool = False
+
+
+class StatusChange(BaseModel):
+    """切换画像条目状态。"""
+    status: str = Field(..., description="confirmed | suggested | rejected | archived")
+
+
+# === 画像更新提案（阶段1 指令1-2） ===
+
+class ProfileUpdateProposalOut(BaseModel):
+    """画像更新提案输出。"""
+    id: int
+    report_id: str | None = None
+    change_type: str
+    target_profile_item_id: int | None = None
+    before_value: str | None = None
+    after_value: str | None = None
+    reason: str | None = None
+    status: str
+    created_at: datetime
+
+
+class ProposalAction(BaseModel):
+    """确认提案操作。"""
+    action: str = Field(..., description="accept | reject | defer")
+    after_value: str | None = Field(default=None, description="修改后采纳的自定义值（可选）")

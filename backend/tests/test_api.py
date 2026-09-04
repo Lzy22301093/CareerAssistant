@@ -43,6 +43,10 @@ class MockLLM(LLMProvider):
 def mock_llm():
     """创建配置好的 MockLLM。"""
     llm = MockLLM()
+    # 意图分类（匹配 INTENT_CLASSIFICATION_PROMPT）
+    llm.when("你是一个求职助手的意图分类器", json.dumps({
+        "intent": "upload_profile", "confidence": 0.95, "reason": "用户提供简历",
+    }, ensure_ascii=False))
     llm.when("职位描述", json.dumps({
         "job_title": "Python开发工程师",
         "company": "测试公司",
@@ -165,8 +169,20 @@ class TestInterruptedRunPersistence:
         create_resp = await client.post("/api/sessions/")
         session_id = create_resp.json()["session_id"]
 
+        # 上传 JD + 简历文件（确保流水线完整运行，在 profile_extractor 阶段触发失败）
+        jd_text = "职位描述：Python 开发工程师，要求 3 年经验，熟悉 FastAPI 和 Docker"
+        resume_text = "张三，Python 工程师，5年经验"
+        await client.post(
+            f"/api/sessions/{session_id}/upload",
+            files={"file": ("jd.txt", jd_text.encode("utf-8"), "text/plain")},
+        )
+        await client.post(
+            f"/api/sessions/{session_id}/upload",
+            files={"file": ("简历.txt", resume_text.encode("utf-8"), "text/plain")},
+        )
+
         # 按消息内容区分调用：意图分类 → 正常；jd_analyzer → 正常；
-        # 其余（clarifier 等）→ 抛异常，模拟处理中途失败
+        # 其余（profile_extractor 等）→ 抛异常，模拟处理中途失败
         class FakeBadRequest(Exception):
             status_code = 400
 
@@ -179,7 +195,7 @@ class TestInterruptedRunPersistence:
             async def chat(self, messages, **kwargs):
                 self.calls += 1
                 content = " ".join(m.content for m in messages)
-                if "意图分类" in content:
+                if "意图分类" in content or "意图分类器" in content:
                     return Response(content=json.dumps({
                         "intent": "upload_jd", "reason": "用户提供JD", "confidence": 0.9,
                     }))
@@ -260,6 +276,52 @@ class TestSendMessage:
         data = resp.json()
         assert len(data["messages"]) >= 1
         assert data["messages"][0]["role"] == "user"
+
+
+class TestSessionTrace:
+    """测试 LLM 调用级观测埋点（C1）：SSE 事件 + done 汇总 + /trace 回查。"""
+
+    async def test_llm_call_events_and_trace_endpoint(
+        self, client: AsyncClient, mock_llm: MockLLM
+    ):
+        create_resp = await client.post("/api/sessions/")
+        session_id = create_resp.json()["session_id"]
+
+        with patch("app.api.sessions.create_llm_provider", return_value=mock_llm):
+            resp = await client.post(
+                f"/api/sessions/{session_id}/messages",
+                json={"content": "分析这份职位描述"},
+            )
+        assert resp.status_code == 200
+
+        events = _parse_sse(resp.text)
+
+        # SSE 推送 llm_call 事件，字段完整（agent/模型/延迟/状态/token）
+        llm_events = [e for e in events if e["event"] == "llm_call"]
+        assert len(llm_events) >= 1
+        first = llm_events[0]["data"]
+        assert first["agent"]
+        assert "model" in first
+        assert "latency_ms" in first
+        assert first["status"] == "success"
+
+        # done 事件携带调用汇总
+        done_events = [e for e in events if e["event"] == "done"]
+        summary = done_events[0]["data"].get("llm_summary", {})
+        assert summary.get("total_calls", 0) >= 1
+        assert "llm_time_ms" in summary
+
+        # /trace 接口可回查持久化的调用记录
+        trace_resp = await client.get(f"/api/sessions/{session_id}/trace")
+        assert trace_resp.status_code == 200
+        trace_data = trace_resp.json()
+        assert trace_data["session_id"] == session_id
+        assert len(trace_data["llm_calls"]) >= 1
+        assert trace_data["llm_calls"][0]["agent"]
+
+    async def test_trace_nonexistent_session(self, client: AsyncClient):
+        resp = await client.get("/api/sessions/nonexistent/trace")
+        assert resp.status_code == 404
 
 
 class TestFileUpload:

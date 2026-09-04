@@ -1,0 +1,200 @@
+/*
+ * Element Plus Theme Overrides
+ *
+ * 通过 CSS 变量覆盖 Element Plus 默认主题，使其与 CareerAssistant
+ * 设计系统（tokens.css）保持一致。此文件必须在 element-plus/dist/index.css 之后引入。
+ *
+ * 参考：DESIGN.md · Element Plus 主题覆盖方案
+ */
+
+:root {
+  /* ============================================================
+     1. Color — Primary (替换 Element Plus 默认蓝 #409eff)
+     ============================================================ */
+  --el-color-primary:          var(--color-accent-600);
+  --el-color-primary-light-3:  var(--color-accent-400);
+  --el-color-primary-light-5:  #93bbfd;
+  --el-color-primary-light-7:  var(--color-accent-100);
+  --el-color-primary-light-8:  var(--color-accent-100);
+  --el-color-primary-light-9:  var(--color-accent-50);
+  --el-color-primary-dark-2:   #1d4ed8;
+
+  /* ============================================================
+     2. Color — Semantic
+     ============================================================ */
+  --el-color-success:          var(--color-success-600);
+  --el-color-success-light-3:  #4ade80;
+  --el-color-success-light-5:  #86efac;
+  --el-color-success-light-7:  #bbf7d0;
+  --el-color-success-light-8:  #dcfce7;
+  --el-color-success-light-9:  var(--color-success-50);
+  --el-color-success-dark-2:   #15803d;
+
+  --el-color-warning:          var(--color-warning-600);
+  --el-color-warning-light-3:  #eab308;
+  --el-color-warning-light-5:  #facc15;
+  --el-color-warning-light-7:  #fef08a;
+  --el-color-warning-light-8:  #fef9c3;
+  --el-color-warning-light-9:  var(--color-warning-50);
+  --el-color-warning-dark-2:   #a16207;
+
+  --el-color-danger:           var(--color-danger-600);
+  --el-color-danger-light-3:   #ef4444;
+  --el-color-danger-light-5:   #f87171;
+  --el-color-danger-light-7:   #fca5a5;
+  --el-color-danger-light-8:   #fecaca;
+  --el-color-danger-light-9:   var(--color-danger-50);
+  --el-color-danger-dark-2:    #b91c1c;
+
+  --el-color-info:             var(--color-gray-500);
+  --el-color-info-light-3:     var(--color-gray-400);
+  --el-color-info-light-5:     var(--color-gray-300);
+  --el-color-info-light-7:     var(--color-gray-200);
+  --el-color-info-light-8:     var(--color-gray-100);
+  --el-color-info-light-9:     var(--color-gray-50);
+  --el-color-info-dark-2:      var(--color-gray-700);
+
+  /* ============================================================
+     3. Typography
+     ============================================================ */
+  --el-font-family:        var(--font-sans);
+  --el-font-size-base:     var(--text-base);   /* 14px */
+  --el-font-size-small:    var(--text-sm);     /* 13px */
+  --el-font-size-extra-small: var(--text-xs);  /* 12px */
+
+  /* ============================================================
+     4. Border Radius
+     ============================================================ */
+  --el-border-radius-base:    var(--radius-md);   /* 4px */
+  --el-border-radius-small:   var(--radius-sm);   /* 2px */
+  --el-border-radius-round:   var(--radius-full); /* 9999px */
+
+  /* ============================================================
+     5. Border Color
+     ============================================================ */
+  --el-border-color:           var(--color-gray-200);
+  --el-border-color-light:     var(--color-gray-100);
+  --el-border-color-lighter:   var(--color-gray-50);
+  --el-border-color-extra-light: var(--color-gray-50);
+
+  /* ============================================================
+     6. Background Color
+     ============================================================ */
+  --el-bg-color-page:          var(--color-gray-50);
+  --el-bg-color:               var(--color-white);
+  --el-bg-color-overlay:       var(--color-white);
+
+  /* ============================================================
+     7. Text Color
+     ============================================================ */
+  --el-text-color-primary:     var(--color-gray-900);
+  --el-text-color-regular:     var(--color-gray-700);
+  --el-text-color-secondary:   var(--color-gray-500);
+  --el-text-color-placeholder: var(--color-gray-400);
+  --el-text-color-disabled:    var(--color-gray-400);
+
+  /* ============================================================
+     8. Fill Color (背景填充)
+     ============================================================ */
+  --el-fill-color:             var(--color-gray-100);
+  --el-fill-color-light:       var(--color-gray-50);
+  --el-fill-color-lighter:     var(--color-gray-50);
+  --el-fill-color-extra-light: var(--color-gray-50);
+  --el-fill-color-blank:       var(--color-white);
+
+  /* ============================================================
+     9. Mask / Overlay
+     ============================================================ */
+  --el-mask-color:             rgba(0, 0, 0, 0.5);
+  --el-mask-color-extra-light: rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================================
+   Tabs — 下划线式 Tab Bar
+   ============================================================ */
+.el-tabs__item {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  transition: color var(--duration-fast) var(--ease-default);
+}
+
+.el-tabs__item.is-active {
+  color: var(--color-accent-600);
+  font-weight: var(--weight-semibold);
+}
+
+.el-tabs__active-bar {
+  background-color: var(--color-accent-600);
+  height: 2px;
+}
+
+.el-tabs__nav-wrap::after {
+  background-color: var(--color-gray-200);
+  height: 1px;
+}
+
+/* ============================================================
+   Table — 无斑马纹、hover 高亮、表头小字
+   ============================================================ */
+.el-table {
+  --el-table-border-color: var(--color-gray-200);
+  --el-table-header-bg-color: var(--color-gray-50);
+  --el-table-header-text-color: var(--color-text-secondary);
+  --el-table-row-hover-bg-color: var(--color-gray-100);
+  font-size: var(--text-sm);
+}
+
+.el-table th.el-table__cell {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: var(--color-white);
+}
+
+/* ============================================================
+   Tag — 小圆角、浅色背景 + 深色文字
+   ============================================================ */
+.el-tag {
+  --el-tag-border-radius: var(--radius-sm);
+}
+
+/* ============================================================
+   Descriptions — Token 化
+   ============================================================ */
+.el-descriptions__label {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.el-descriptions__content {
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+}
+
+/* ============================================================
+   Collapse — Token 化
+   ============================================================ */
+.el-collapse-item__header {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+  background: var(--color-white);
+  border-bottom: var(--border-light);
+}
+
+.el-collapse-item__wrap {
+  background: var(--color-white);
+}
+
+.el-collapse-item__content {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-4);
+}

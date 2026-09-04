@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database import Base
@@ -26,6 +26,11 @@ class User(Base):
     career_profile: Mapped["CareerProfile | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
     applications: Mapped[list["JobApplication"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     interviews: Mapped[list["InterviewLog"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    interview_reports: Mapped[list["InterviewReport"]] = relationship(cascade="all, delete-orphan")
+    profile_items: Mapped[list["ProfileItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    job_postings: Mapped[list["JobPosting"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    match_tasks: Mapped[list["MatchTask"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    profile_update_proposals: Mapped[list["ProfileUpdateProposal"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(username={self.username!r}, email={self.email!r})>"
@@ -175,3 +180,154 @@ class InterviewLog(Base):
 
     def __repr__(self) -> str:
         return f"<InterviewLog(user_id={self.user_id}, company={self.company!r}, result={self.result})>"
+
+
+class InterviewReport(Base):
+    """模拟面试报告（AI Mock Interview）。"""
+    __tablename__ = "interview_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    interview_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    target_position: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    difficulty_level: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)
+    turn_count: Mapped[int] = mapped_column(Integer, default=0)
+    dimension_scores_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strengths_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weaknesses_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conversation_history_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_report_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completion_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    proposal_ids: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list，关联 profile_update_proposals
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<InterviewReport(interview_id={self.interview_id!r}, position={self.target_position!r})>"
+
+
+class ProfileItem(Base):
+    """画像条目 —— 个人知识库的细分条目（事实/建议/反馈）。
+
+    status: confirmed | suggested | rejected | archived
+    category: basic_info | education | experience | skill | target | soft | interview_feedback
+    item_type: fact | suggestion | feedback
+    visibility: resume | interview | resume_interview | private
+    """
+    __tablename__ = "profile_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_type: Mapped[str] = mapped_column(String(32), default="fact", nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    visibility: Mapped[str] = mapped_column(String(20), default="resume_interview", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="confirmed", nullable=False, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="profile_items")
+    evidences: Mapped[list["ProfileEvidence"]] = relationship(back_populates="profile_item", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<ProfileItem(user_id={self.user_id}, category={self.category!r}, status={self.status!r})>"
+
+
+class ProfileEvidence(Base):
+    """画像条目证据 —— 支持该条画像的来源引用。
+
+    source_type: user_input | resume | interview_report
+    """
+    __tablename__ = "profile_evidences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    profile_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("profile_items.id"), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_by_user: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    # Relationships
+    profile_item: Mapped["ProfileItem"] = relationship(back_populates="evidences")
+
+    def __repr__(self) -> str:
+        return f"<ProfileEvidence(profile_item_id={self.profile_item_id}, source_type={self.source_type!r})>"
+
+
+class JobPosting(Base):
+    """岗位 JD 资产 —— 独立于会话的一等岗位资产。"""
+    __tablename__ = "job_postings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    company: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    jd_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    jd_image: Mapped[str | None] = mapped_column(Text, nullable=True)  # 图片文件/URL
+    source: Mapped[str] = mapped_column(String(32), default="manual", nullable=False)  # manual | upload | scrape
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="job_postings")
+    match_tasks: Mapped[list["MatchTask"]] = relationship(back_populates="job_posting", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<JobPosting(user_id={self.user_id}, company={self.company!r}, title={self.title!r})>"
+
+
+class MatchTask(Base):
+    """岗位匹配任务 —— 把"某个 JD + 某份简历 + 页数偏好 + 分数 + 阶段历史"绑成一个任务。"""
+    __tablename__ = "match_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    job_posting_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("job_postings.id"), nullable=True, index=True)
+    resume_version_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("resume_versions.id"), nullable=True, index=True)
+    page_preference: Mapped[str] = mapped_column(String(20), default="one_page", nullable=False)  # one_page | two_pages
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-100 匹配分数
+    stage: Mapped[str] = mapped_column(String(32), default="created", nullable=False)  # created | analyzing | done | failed
+    summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 分析摘要/优势/缺口
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="match_tasks")
+    job_posting: Mapped["JobPosting"] = relationship(back_populates="match_tasks")
+
+    def __repr__(self) -> str:
+        return f"<MatchTask(user_id={self.user_id}, score={self.score}, stage={self.stage!r})>"
+
+
+class ProfileUpdateProposal(Base):
+    """面试报告 → 画像更新提案（安全边界）。
+
+    报告可产出建议，但只有用户采纳后才写回 ProfileItem。
+    change_type: add | update | add_evidence | feedback
+    status: pending | accepted | rejected | deferred
+    """
+    __tablename__ = "profile_update_proposals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    report_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # 关联 interview_reports.interview_id
+    target_profile_item_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("profile_items.id"), nullable=True, index=True)
+    change_type: Mapped[str] = mapped_column(String(32), default="add", nullable=False)
+    before_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_ids: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of evidence ids/refs
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="profile_update_proposals")
+
+    def __repr__(self) -> str:
+        return f"<ProfileUpdateProposal(user_id={self.user_id}, change_type={self.change_type!r}, status={self.status!r})>"

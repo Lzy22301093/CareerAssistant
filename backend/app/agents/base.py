@@ -19,6 +19,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from app.llm import LLMProvider, Message, Response, Role, ToolCall, ToolDefinition
+from app.llm.observability import start_llm_call
 from app.llm.retry import is_retryable_llm_error, with_retry
 from app.tools.base import Tool
 
@@ -50,6 +51,7 @@ class BaseAgent(ABC):
     temperature: float = 0.7
     max_tokens: int = 4096
     model: str | None = None
+    json_mode: bool = False  # 启用 response_format=json_object（MIMO/DeepSeek 支持）
     # 解析失败修复重试次数上限（>1 时，LLM 输出非 JSON 会回喂修复一次）
     max_parse_attempts: int = 1
 
@@ -122,10 +124,40 @@ class BaseAgent(ABC):
 
     # --- LLM 调用 ---
 
-    @with_retry(max_retries=3, base_delay=1.0, retryable=is_retryable_llm_error)
     async def _call_llm(self, messages: list[Message], **kwargs) -> Response:
-        """调用 LLM 并返回完整响应（含 tool_calls），带错误类型感知的重试。"""
-        return await self.llm.chat(messages, **kwargs)
+        """调用 LLM 并返回完整响应（含 tool_calls），带错误类型感知的重试。
+
+        同时做调用级埋点（C1）：延迟 / token / 重试次数 / 错误分类，
+        捕获开启时随请求汇总（见 app.llm.observability），未开启时仅打日志。
+        重试在内部闭包上包 with_retry（而非装饰本方法），
+        以便把 tracker 的 note_retry 作为 on_retry 回调传入。
+        """
+        tracker = start_llm_call(
+            agent=self.name or type(self).__name__,
+            model=kwargs.get("model") or getattr(self.llm, "model", "") or "",
+            prompt_chars=sum(len(m.content or "") for m in messages),
+        )
+
+        async def _invoke() -> Response:
+            # json_mode 仅在无工具调用时启用（function calling 与 json_object 互斥）
+            if kwargs.get("json_mode") and kwargs.get("tools"):
+                kwargs.pop("json_mode", None)
+            return await self.llm.chat(messages, **kwargs)
+
+        retry_invoke = with_retry(
+            max_retries=3,
+            base_delay=1.0,
+            retryable=is_retryable_llm_error,
+            on_retry=tracker.note_retry,
+        )(_invoke)
+
+        try:
+            response = await retry_invoke()
+        except Exception as e:
+            tracker.fail(e)
+            raise
+        tracker.succeed(response)
+        return response
 
     async def run(self, **kwargs) -> dict:
         """执行 Agent：构造消息 → 工具调用循环 → 解析响应。
@@ -163,6 +195,7 @@ class BaseAgent(ABC):
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     model=self.model,
+                    json_mode=self.json_mode,
                 ),
                 timeout=AGENT_TIMEOUT,
             )
@@ -212,6 +245,7 @@ class BaseAgent(ABC):
             raise RuntimeError(f"[{self.name}] LLM 未返回任何响应")
 
         final_content = response.content or ""
+        logger.debug(f"[{self.name}] LLM 原始响应 ({len(final_content)} 字符): {final_content[:500]}")
 
         # 解析 + 失败修复重试（max_parse_attempts > 1 时生效）：
         # LLM 输出非合法 JSON 时，把原始输出回喂让它修复格式，再解析一次
@@ -240,6 +274,7 @@ class BaseAgent(ABC):
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     model=self.model,
+                    json_mode=self.json_mode,
                 ),
                 timeout=AGENT_TIMEOUT,
             )

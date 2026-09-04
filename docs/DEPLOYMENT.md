@@ -69,7 +69,7 @@ CareerAssistant/
 | `DATABASE_URL` | MySQL 连接串（仅 backend/.env） | `mysql+pymysql://career:career@localhost:3307/career_assistant` |
 | `REDIS_URL` | Redis 地址（仅 backend/.env） | `redis://localhost:6379/0` |
 
-> 模型分层说明：JD 分析、画像提取、差距分析、评审、澄清等**提取类**任务用 `FAST_MODEL`（更快更省）；简历生成、HTML 渲染、面试题生成等**生成类**任务用 `LLM_MODEL`（质量优先）。
+> 模型分层说明：JD 分析、画像提取、差距分析、评审、澄清、问答等**提取/评审类**任务用 `FAST_MODEL`（更快更省）；简历生成、HTML 渲染、面试题生成、求职信等**生成类**任务用 `LLM_MODEL`（质量优先）。
 
 ---
 

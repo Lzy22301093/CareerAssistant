@@ -299,7 +299,7 @@ CREATE TABLE career_profiles (
 - 输入未变 → 不重跑 ✅
 - 意图分类失败 → 规则引擎兜底 ✅（test_intent.py 8 项）
 - 跨会话：简历上传后 career_profile 规则合并 ✅（test_memory_service.py 10 项）
-- 284 个测试全绿
+- 322 个测试全绿
 
 ### M2 — 功能扩展（已完成）
 
@@ -336,7 +336,7 @@ CREATE TABLE career_profiles (
 | 增量编辑 | 哈希变化→重跑、哈希不变→跳过、profile 合并不丢旧数据（集成测试） |
 | Memory | consolidate 输出 schema 校验、非法字段拒绝、落库幂等 |
 | SSE | 事件顺序与载荷（extend test_api 现有模式） |
-| 回归 | 现有 257 测试保持全绿 |
+| 回归 | 现有 322 测试保持全绿 |
 
 ---
 
@@ -347,7 +347,7 @@ CREATE TABLE career_profiles (
 | LLM 意图分类不稳定（多花一次调用 + 误判） | 用 FAST_MODEL（成本低）；规则引擎 guardrail 兜底；confidence 低回退 |
 | 增量哈希误判（规范化不足导致误重跑/漏重跑） | 文本规范化后取哈希；测试覆盖格式变化场景 |
 | 记忆污染（LLM 提炼乱写档案） | 白名单字段 + 空值拒绝 + conflict 需确认 + 代码校验兜底 |
-| 改动面大回归 | 分里程碑；每期跑全量 257 测试 + 新增用例 |
+| 改动面大回归 | 分里程碑；每期跑全量 322 测试 + 新增用例 |
 | 参考项目"固定链路"教训 | 我们不照抄固定链路；意图路由仍经过增量检测与现有动态图 |
 
 ---

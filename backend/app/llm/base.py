@@ -66,6 +66,7 @@ class LLMProvider(Protocol):
         tools: list[ToolDefinition] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        json_mode: bool = False,
     ) -> Response: ...
 
     async def stream_chat(
