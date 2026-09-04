@@ -18,6 +18,8 @@ from app.models.orm import (  # noqa: F401
     ProfileEvidence,
     ProfileItem,
     ProfileUpdateProposal,
+    ResumeDocument,
+    ResumeSection,
     ResumeVersion,
     UploadedFile,
     User,

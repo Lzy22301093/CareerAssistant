@@ -1,0 +1,324 @@
+"""ResumeLibraryService — 简历库资产（阶段2 指令2-1）。
+
+文档（ResumeDocument）+ 多版本（ResumeVersion）+ 区域（ResumeSection）+ 回收站。
+方法接收 db（Session），便于在测试中用 SQLite 注入。
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy.orm import Session as DBSession
+
+from app.models.orm import AnalysisSession, ResumeDocument, ResumeSection, ResumeVersion
+from app.models.schemas import (
+    ResumeDocumentCreate,
+    ResumeDocumentUpdate,
+    ResumeSectionUpdate,
+    ResumeVersionCreate,
+)
+
+ALLOWED_SOURCES = {"manual", "session", "upload"}
+ALLOWED_SECTION_TYPES = {
+    "header",
+    "summary",
+    "education",
+    "experience",
+    "project",
+    "skill",
+    "certification",
+    "custom",
+}
+
+# 区块标题关键词 → section_type（用于从聊天产物自动生成区域）
+_TITLE_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
+    (("教育", "学历"), "education"),
+    (("工作经历", "实习", "职业经历", "工作"), "experience"),
+    (("项目",), "project"),
+    (("技能",), "skill"),
+    (("证书", "资格"), "certification"),
+    (("自我评价", "个人总结", "总结", "简介", "概述"), "summary"),
+    (("基本信息", "联系方式", "个人信息"), "header"),
+]
+
+
+class ResumeLibraryError(ValueError):
+    """业务校验错误。"""
+
+
+def _ensure(value: str | None, allowed: set[str], label: str) -> str:
+    if value not in allowed:
+        raise ResumeLibraryError(f"{label} 非法: {value!r}，允许 {sorted(allowed)}")
+    return value
+
+
+def parse_json_object(raw: str | None) -> dict[str, Any] | None:
+    """安全解析 JSON 对象，失败返回 None（脏数据不炸接口）。"""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def infer_section_type(title: str | None) -> str:
+    """根据区块标题推断 section_type，未命中归为 custom。"""
+    if not title:
+        return "custom"
+    for keywords, section_type in _TITLE_TYPE_KEYWORDS:
+        if any(k in title for k in keywords):
+            return section_type
+    return "custom"
+
+
+def _sections_from_content(content: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """把 ResumeContent 形态的 content 拆成区域行数据（页码从 1 顺排，boundingBox 由前端框选后回填）。"""
+    sections: list[dict[str, Any]] = []
+    raw_sections = content.get("sections")
+    if isinstance(raw_sections, list):
+        for idx, sec in enumerate(raw_sections):
+            if not isinstance(sec, Mapping):
+                continue
+            title = str(sec.get("title") or "").strip() or None
+            sections.append(
+                {
+                    "page_number": int(sec.get("page_number") or 1),
+                    "section_type": str(sec.get("section_type") or "") or infer_section_type(title),
+                    "title": title,
+                    "content": sec.get("content"),
+                    "sort_order": idx,
+                }
+            )
+    if not sections:
+        raw_text = str(content.get("raw_text") or "").strip()
+        if raw_text:
+            sections.append(
+                {
+                    "page_number": 1,
+                    "section_type": "custom",
+                    "title": None,
+                    "content": raw_text,
+                    "sort_order": 0,
+                }
+            )
+    for sec in sections:
+        if sec["section_type"] not in ALLOWED_SECTION_TYPES:
+            sec["section_type"] = "custom"
+    return sections
+
+
+class ResumeLibraryService:
+    """简历文档 + 版本 + 区域 + 回收站。"""
+
+    # ---- 文档 ----
+
+    def create_document(self, db: DBSession, user_id: int, data: ResumeDocumentCreate) -> ResumeDocument:
+        _ensure(data.source, ALLOWED_SOURCES, "source")
+        doc = ResumeDocument(user_id=user_id, title=data.title, source=data.source, notes=data.notes)
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    def list_documents(self, db: DBSession, user_id: int, include_deleted: bool = False) -> list[ResumeDocument]:
+        q = db.query(ResumeDocument).filter(ResumeDocument.user_id == user_id)
+        if not include_deleted:
+            q = q.filter(ResumeDocument.deleted_at.is_(None))
+        return q.order_by(ResumeDocument.updated_at.desc(), ResumeDocument.id.desc()).all()
+
+    def list_deleted(self, db: DBSession, user_id: int) -> list[ResumeDocument]:
+        """回收站列表。"""
+        return (
+            db.query(ResumeDocument)
+            .filter(ResumeDocument.user_id == user_id, ResumeDocument.deleted_at.isnot(None))
+            .order_by(ResumeDocument.deleted_at.desc())
+            .all()
+        )
+
+    def get_document(self, db: DBSession, user_id: int, doc_id: int, include_deleted: bool = False) -> ResumeDocument:
+        doc = db.query(ResumeDocument).filter(ResumeDocument.id == doc_id, ResumeDocument.user_id == user_id).first()
+        if doc is None or (doc.deleted_at is not None and not include_deleted):
+            raise ResumeLibraryError("简历文档不存在")
+        return doc
+
+    def rename_document(self, db: DBSession, user_id: int, doc_id: int, data: ResumeDocumentUpdate) -> ResumeDocument:
+        doc = self.get_document(db, user_id, doc_id, include_deleted=True)
+        updates = data.model_dump(exclude_unset=True, exclude_none=True)
+        for field, value in updates.items():
+            setattr(doc, field, value)
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    def soft_delete_document(self, db: DBSession, user_id: int, doc_id: int) -> ResumeDocument:
+        """移入回收站（软删除，可恢复）。"""
+        doc = self.get_document(db, user_id, doc_id)
+        doc.deleted_at = datetime.now()
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    def restore_document(self, db: DBSession, user_id: int, doc_id: int) -> ResumeDocument:
+        doc = self.get_document(db, user_id, doc_id, include_deleted=True)
+        doc.deleted_at = None
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    def purge_document(self, db: DBSession, user_id: int, doc_id: int) -> None:
+        """彻底删除（版本与区域级联清除，不可恢复）。"""
+        doc = self.get_document(db, user_id, doc_id, include_deleted=True)
+        db.delete(doc)
+        db.commit()
+
+    # ---- 版本 ----
+
+    def add_version(self, db: DBSession, user_id: int, doc_id: int, data: ResumeVersionCreate) -> ResumeVersion:
+        """新增一版简历内容：版本号在文档内自增，自动拆分区域，并设为当前版本。"""
+        doc = self.get_document(db, user_id, doc_id)
+        max_version = (
+            db.query(ResumeVersion.version)
+            .filter(ResumeVersion.document_id == doc.id)
+            .order_by(ResumeVersion.version.desc())
+            .first()
+        )
+        version = ResumeVersion(
+            document_id=doc.id,
+            user_id=user_id,
+            version=(max_version[0] + 1) if max_version else 1,
+            content_json=json.dumps(data.content, ensure_ascii=False),
+            render_config_json=json.dumps(data.render_config, ensure_ascii=False) if data.render_config else None,
+        )
+        db.add(version)
+        db.flush()
+        for sec in _sections_from_content(data.content):
+            db.add(ResumeSection(resume_version_id=version.id, **sec))
+        doc.current_version_id = version.id
+        db.commit()
+        db.refresh(version)
+        return version
+
+    def list_versions(self, db: DBSession, user_id: int, doc_id: int) -> list[ResumeVersion]:
+        doc = self.get_document(db, user_id, doc_id, include_deleted=True)
+        return (
+            db.query(ResumeVersion)
+            .filter(ResumeVersion.document_id == doc.id)
+            .order_by(ResumeVersion.version.desc())
+            .all()
+        )
+
+    def get_version(self, db: DBSession, user_id: int, version_id: int) -> ResumeVersion:
+        version = (
+            db.query(ResumeVersion)
+            .join(ResumeDocument, ResumeVersion.document_id == ResumeDocument.id)
+            .filter(ResumeVersion.id == version_id, ResumeDocument.user_id == user_id)
+            .first()
+        )
+        if version is None:
+            raise ResumeLibraryError("简历版本不存在")
+        return version
+
+    def rollback_version(self, db: DBSession, user_id: int, doc_id: int, version_id: int) -> ResumeDocument:
+        """回滚 = 把文档当前版本指针指回历史版本（非破坏性，版本历史完整保留）。"""
+        doc = self.get_document(db, user_id, doc_id)
+        version = self.get_version(db, user_id, version_id)
+        if version.document_id != doc.id:
+            raise ResumeLibraryError("该版本不属于此简历文档")
+        doc.current_version_id = version.id
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    # ---- 区域 ----
+
+    def list_sections(self, db: DBSession, user_id: int, version_id: int) -> list[ResumeSection]:
+        version = self.get_version(db, user_id, version_id)
+        return (
+            db.query(ResumeSection)
+            .filter(ResumeSection.resume_version_id == version.id)
+            .order_by(ResumeSection.sort_order.asc(), ResumeSection.id.asc())
+            .all()
+        )
+
+    def get_section(self, db: DBSession, user_id: int, section_id: int) -> ResumeSection:
+        section = (
+            db.query(ResumeSection)
+            .join(ResumeVersion, ResumeSection.resume_version_id == ResumeVersion.id)
+            .join(ResumeDocument, ResumeVersion.document_id == ResumeDocument.id)
+            .filter(ResumeSection.id == section_id, ResumeDocument.user_id == user_id)
+            .first()
+        )
+        if section is None:
+            raise ResumeLibraryError("简历区域不存在")
+        return section
+
+    def update_section(self, db: DBSession, user_id: int, section_id: int, data: ResumeSectionUpdate) -> ResumeSection:
+        section = self.get_section(db, user_id, section_id)
+        updates = data.model_dump(exclude_unset=True, exclude_none=True)
+        if "section_type" in updates:
+            _ensure(updates["section_type"], ALLOWED_SECTION_TYPES, "section_type")
+        bounding = updates.pop("bounding_box", None)
+        for field, value in updates.items():
+            setattr(section, field, value)
+        if bounding is not None:
+            section.bounding_box = json.dumps(bounding, ensure_ascii=False)
+        db.commit()
+        db.refresh(section)
+        return section
+
+    # ---- 会话导入 ----
+
+    def import_from_session(
+        self,
+        db: DBSession,
+        user_id: int,
+        session_id: str,
+        title: str | None = None,
+    ) -> tuple[ResumeDocument, ResumeVersion]:
+        """把聊天会话最新一次生成的简历导入简历库（复制为独立版本，会话数据保持不动）。"""
+        source_version = (
+            db.query(ResumeVersion)
+            .filter(ResumeVersion.session_id == session_id)
+            .order_by(ResumeVersion.created_at.desc(), ResumeVersion.id.desc())
+            .first()
+        )
+        if source_version is None:
+            raise ResumeLibraryError("该会话没有可导入的简历内容")
+        if source_version.session and source_version.session.user_id not in (None, user_id):
+            raise ResumeLibraryError("该会话不属于当前用户")
+        doc = self.create_document(
+            db,
+            user_id,
+            ResumeDocumentCreate(
+                title=title or f"会话简历 {session_id[:8]}",
+                source="session",
+            ),
+        )
+        version = self.add_version(
+            db,
+            user_id,
+            doc.id,
+            ResumeVersionCreate(
+                content=parse_json_object(source_version.content_json) or {"raw_text": source_version.content_json},
+                render_config=parse_json_object(source_version.render_config_json),
+            ),
+        )
+        return doc, version
+
+    # ---- 会话辅助 ----
+
+    @staticmethod
+    def find_session(db: DBSession, user_id: int, session_id: str) -> AnalysisSession:
+        session = (
+            db.query(AnalysisSession)
+            .filter(AnalysisSession.session_id == session_id, AnalysisSession.user_id == user_id)
+            .first()
+        )
+        if session is None:
+            raise ResumeLibraryError("分析会话不存在")
+        return session

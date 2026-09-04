@@ -272,3 +272,85 @@ class ProposalAction(BaseModel):
     """确认提案操作。"""
     action: str = Field(..., description="accept | reject | defer")
     after_value: str | None = Field(default=None, description="修改后采纳的自定义值（可选）")
+
+
+# === 简历库资产（阶段2 指令2-1） ===
+
+class ResumeDocumentCreate(BaseModel):
+    """新建简历库文档。"""
+    title: str = Field(..., min_length=1, max_length=200, description="简历名称")
+    source: str = Field(default="manual", description="manual | session | upload")
+    notes: str | None = None
+
+
+class ResumeDocumentUpdate(BaseModel):
+    """更新简历库文档（部分字段）。"""
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    notes: str | None = None
+
+
+class ResumeVersionCreate(BaseModel):
+    """为文档新增一版简历内容。"""
+    content: dict = Field(..., description='简历内容 {"sections": [{"title","content"}], "raw_text": str}')
+    render_config: dict | None = None
+
+
+class ResumeSectionUpdate(BaseModel):
+    """更新简历区域（部分字段，供区域改写/定位用）。"""
+    title: str | None = None
+    content: str | None = None
+    section_type: str | None = Field(default=None, description="header|summary|education|experience|project|skill|certification|custom")
+    page_number: int | None = Field(default=None, ge=1)
+    bounding_box: dict | None = Field(default=None, description='{"x","y","width","height","page"}')
+    sort_order: int | None = None
+
+
+class ResumeSectionOut(BaseModel):
+    """简历区域输出。"""
+    id: int
+    resume_version_id: int
+    page_number: int
+    section_type: str
+    title: str | None = None
+    content: str | None = None
+    bounding_box: dict | None = None
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ResumeVersionOut(BaseModel):
+    """简历版本输出（含区域）。"""
+    id: int
+    document_id: int | None = None
+    session_id: str | None = None
+    version: int
+    content: dict | None = None
+    render_config: dict | None = None
+    sections: list[ResumeSectionOut] = Field(default_factory=list)
+    is_current: bool = False
+    created_at: datetime
+
+
+class ResumeDocumentOut(BaseModel):
+    """简历库文档输出。"""
+    id: int
+    title: str
+    source: str
+    current_version_id: int | None = None
+    version_count: int = 0
+    deleted_at: datetime | None = None
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ResumeDocumentDetailOut(ResumeDocumentOut):
+    """简历库文档详情（含版本列表与当前版本内容）。"""
+    versions: list[ResumeVersionOut] = Field(default_factory=list)
+    current_version: ResumeVersionOut | None = None
+
+
+class SessionImportRequest(BaseModel):
+    """从聊天会话导入简历到简历库。"""
+    session_id: str = Field(..., min_length=1, description="分析会话 ID")

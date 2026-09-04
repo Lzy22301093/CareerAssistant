@@ -31,6 +31,7 @@ class User(Base):
     job_postings: Mapped[list["JobPosting"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     match_tasks: Mapped[list["MatchTask"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     profile_update_proposals: Mapped[list["ProfileUpdateProposal"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    resume_documents: Mapped[list["ResumeDocument"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(username={self.username!r}, email={self.email!r})>"
@@ -103,22 +104,77 @@ class AnalysisSession(Base):
         return f"<AnalysisSession(session_id={self.session_id!r}, stage={self.stage!r})>"
 
 
+class ResumeDocument(Base):
+    """简历库文档（阶段2 指令2-1）—— 用户级简历资产，下挂多版本，支持回收站软删除。"""
+    __tablename__ = "resume_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), default="未命名简历", nullable=False)
+    source: Mapped[str] = mapped_column(String(32), default="manual", nullable=False)  # manual | session | upload
+    current_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)  # 指向 resume_versions.id，无外键约束避免循环依赖
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 软删除 → 回收站
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="resume_documents")
+    versions: Mapped[list["ResumeVersion"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<ResumeDocument(id={self.id}, title={self.title!r}, user_id={self.user_id})>"
+
+
 class ResumeVersion(Base):
-    """Resume version table for tracking resume iterations."""
+    """Resume version table for tracking resume iterations.
+
+    阶段2 起一版简历既可挂在 analysis_sessions（聊天产物冷存）也可挂在
+    resume_documents（简历库资产）下：session_id/document_id 至少一个非空。
+    """
     __tablename__ = "resume_versions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_sessions.session_id"), nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("analysis_sessions.session_id"), nullable=True, index=True)
+    document_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("resume_documents.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     content_json: Mapped[str] = mapped_column(Text, nullable=False)
     render_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     # Relationships
-    session: Mapped["AnalysisSession"] = relationship(back_populates="resume_versions")
+    session: Mapped["AnalysisSession | None"] = relationship(back_populates="resume_versions")
+    document: Mapped["ResumeDocument | None"] = relationship(back_populates="versions")
+    sections: Mapped[list["ResumeSection"]] = relationship(
+        back_populates="resume_version", cascade="all, delete-orphan", order_by="ResumeSection.sort_order"
+    )
 
     def __repr__(self) -> str:
-        return f"<ResumeVersion(session_id={self.session_id!r}, version={self.version})>"
+        return f"<ResumeVersion(session_id={self.session_id!r}, document_id={self.document_id}, version={self.version})>"
+
+
+class ResumeSection(Base):
+    """简历区域（阶段2 指令2-1）—— 版本内可寻址的最小编辑单元，支持 boundingBox 定位。"""
+    __tablename__ = "resume_sections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    resume_version_id: Mapped[int] = mapped_column(Integer, ForeignKey("resume_versions.id"), nullable=False, index=True)
+    page_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    section_type: Mapped[str] = mapped_column(String(32), default="custom", nullable=False)
+    # header | summary | education | experience | project | skill | certification | custom
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bounding_box: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON {"x","y","width","height","page"}
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    resume_version: Mapped["ResumeVersion"] = relationship(back_populates="sections")
+
+    def __repr__(self) -> str:
+        return f"<ResumeSection(version_id={self.resume_version_id}, type={self.section_type!r}, title={self.title!r})>"
 
 
 class UploadedFile(Base):
