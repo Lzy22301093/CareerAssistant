@@ -271,6 +271,86 @@ class ResumeLibraryService:
         db.refresh(section)
         return section
 
+    # ---- 区域改写采纳（阶段2 指令2-2/2-3） ----
+
+    def adopt_section_rewrite(
+        self,
+        db: DBSession,
+        user_id: int,
+        version_id: int,
+        section_id: int,
+        new_content: str,
+    ) -> ResumeVersion:
+        """采纳区域改写：生成一个新版本（目标区域替换为改写文本），保留旧版本可回滚。
+
+        新版本的区域行继承旧版的全部元数据（page/bounding_box/sort_order），
+        仅目标区域 content 替换；content_json 同步替换对应条目并重算 raw_text。
+        """
+        version = self.get_version(db, user_id, version_id)
+        section = self.get_section(db, user_id, section_id)
+        if section.resume_version_id != version.id:
+            raise ResumeLibraryError("该区域不属于此版本")
+
+        content = parse_json_object(version.content_json) or {"sections": [], "raw_text": version.content_json}
+        sections = content.get("sections")
+        replaced = False
+        if isinstance(sections, list):
+            # 优先按 sort_order 索引命中（区域行即按顺序从 content 生成）
+            if 0 <= section.sort_order < len(sections):
+                target = sections[section.sort_order]
+                if isinstance(target, dict) and (not section.title or (target.get("title") or None) == section.title):
+                    target["content"] = new_content
+                    replaced = True
+            if not replaced:
+                for sec in sections:
+                    if isinstance(sec, dict) and sec.get("title") and sec.get("title") == section.title:
+                        sec["content"] = new_content
+                        replaced = True
+                        break
+            if not replaced:
+                sections.append({"title": section.title, "content": new_content})
+                replaced = True
+        if not replaced:
+            content["sections"] = [{"title": section.title, "content": new_content}]
+        if content.get("raw_text") is not None:
+            content["raw_text"] = "\n".join(
+                str(s.get("content") or "") for s in content.get("sections", []) if isinstance(s, dict)
+            )
+
+        max_version = (
+            db.query(ResumeVersion.version)
+            .filter(ResumeVersion.document_id == version.document_id)
+            .order_by(ResumeVersion.version.desc())
+            .first()
+        )
+        new_version = ResumeVersion(
+            document_id=version.document_id,
+            session_id=version.session_id,
+            user_id=user_id,
+            version=(max_version[0] + 1) if max_version else 1,
+            content_json=json.dumps(content, ensure_ascii=False),
+            render_config_json=version.render_config_json,
+        )
+        db.add(new_version)
+        db.flush()
+        for old in version.sections:
+            db.add(
+                ResumeSection(
+                    resume_version_id=new_version.id,
+                    page_number=old.page_number,
+                    section_type=old.section_type,
+                    title=old.title,
+                    content=new_content if old.id == section.id else old.content,
+                    bounding_box=old.bounding_box,
+                    sort_order=old.sort_order,
+                )
+            )
+        if version.document is not None:
+            version.document.current_version_id = new_version.id
+        db.commit()
+        db.refresh(new_version)
+        return new_version
+
     # ---- 会话导入 ----
 
     def import_from_session(

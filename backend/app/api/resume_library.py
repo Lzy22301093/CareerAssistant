@@ -22,12 +22,16 @@ from app.models.schemas import (
     ResumeSectionUpdate,
     ResumeVersionCreate,
     ResumeVersionOut,
+    SectionAdoptRequest,
+    SectionRewriteRequest,
     SessionImportRequest,
 )
 from app.services.resume_library_service import ResumeLibraryError, ResumeLibraryService
+from app.services.section_rewrite_service import SectionRewriteError, SectionRewriteService
 
 router = APIRouter()
 service = ResumeLibraryService()
+rewrite_service = SectionRewriteService()
 
 
 def _safe_json(raw: str | None) -> dict | None:
@@ -229,6 +233,45 @@ async def update_section(
     except ResumeLibraryError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _serialize_section(section)
+
+
+@router.post("/sections/{section_id}/rewrite")
+async def rewrite_section(
+    section_id: int,
+    data: SectionRewriteRequest,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """区域改写：生成多条候选（不覆盖原文；引入画像外数字/经历时带核对标记）。"""
+    try:
+        return await rewrite_service.generate_candidates(
+            db,
+            user["id"],
+            section_id,
+            data.instruction,
+            conversation_history=data.conversation_history,
+            jd_analysis=data.jd_analysis,
+        )
+    except SectionRewriteError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ValueError as e:
+        # LLM provider 初始化失败（缺 key）等环境性错误
+        raise HTTPException(status_code=503, detail=f"改写能力不可用: {e}")
+
+
+@router.post("/versions/{version_id}/adopt-rewrite", response_model=ResumeVersionOut)
+async def adopt_section_rewrite(
+    version_id: int,
+    data: SectionAdoptRequest,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """采纳区域改写：生成新版本（保留旧版本可回滚），并把当前版本指针切过去。"""
+    try:
+        version = service.adopt_section_rewrite(db, user["id"], version_id, data.section_id, data.rewrite)
+    except ResumeLibraryError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _serialize_version(version, current_version_id=version.id)
 
 
 @router.post("/import-from-session", response_model=ResumeDocumentDetailOut, status_code=201)

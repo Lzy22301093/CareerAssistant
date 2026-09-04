@@ -354,3 +354,16 @@ class ResumeDocumentDetailOut(ResumeDocumentOut):
 class SessionImportRequest(BaseModel):
     """从聊天会话导入简历到简历库。"""
     session_id: str = Field(..., min_length=1, description="分析会话 ID")
+
+
+class SectionRewriteRequest(BaseModel):
+    """区域改写请求（阶段2 指令2-2）。"""
+    instruction: str = Field(default="", description="用户改写指令（空则用默认：优化表达与量化）")
+    conversation_history: list[dict] = Field(default_factory=list, description="区域对话历史 [{role, content}]，最多取最近 8 条")
+    jd_analysis: dict | None = Field(default=None, description="目标岗位分析（可选）")
+
+
+class SectionAdoptRequest(BaseModel):
+    """采纳区域改写：以替换后的内容生成新版本。"""
+    section_id: int = Field(..., description="被改写的区域 ID")
+    rewrite: str = Field(..., min_length=1, description="采纳的改写文本")
