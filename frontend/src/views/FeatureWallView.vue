@@ -111,10 +111,10 @@ const cards = computed<Card[]>(() => [
   },
   {
     label: '简历工作台',
-    desc: '简历库 · 分析 · 匹配',
+    desc: '简历库 · 多版本 · 区域改写 · 匹配',
     tag: '打磨并追踪简历',
     icon: FileText,
-    route: '/workspace',
+    route: '/resume-library',
   },
   {
     label: 'AI 模拟面试',

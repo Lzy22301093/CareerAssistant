@@ -26,6 +26,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/resume-library',
+      name: 'resume-library',
+      component: () => import('../views/ResumeLibraryView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/knowledge-base',
       name: 'knowledge-base',
       component: () => import('../views/KnowledgeBaseView.vue'),

@@ -4,8 +4,9 @@
       <router-link to="/" class="brand">CareerAssistant</router-link>
       <nav class="nav-links">
         <router-link to="/" class="nav-link">功能墙</router-link>
-        <router-link to="/workspace" class="nav-link">简历工作台</router-link>
+        <router-link to="/resume-library" class="nav-link">简历库</router-link>
         <router-link to="/knowledge-base" class="nav-link">个人知识库</router-link>
+        <router-link to="/mock-interview" class="nav-link">模拟面试</router-link>
       </nav>
     </div>
     <div class="nav-right">

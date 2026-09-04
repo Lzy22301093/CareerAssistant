@@ -357,3 +357,75 @@ export type SSEEvent =
   | SSEClarificationEvent
   | SSEDoneEvent
   | SSEErrorEvent
+
+// === 简历库资产（阶段2 指令2-1/2-2/2-3） ===
+
+export interface ResumeLibrarySectionBox {
+  x: number
+  y: number
+  width: number
+  height: number
+  page?: number
+}
+
+export interface ResumeLibrarySection {
+  id: number
+  resume_version_id: number
+  page_number: number
+  section_type: string
+  title: string | null
+  content: string | null
+  bounding_box: ResumeLibrarySectionBox | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ResumeLibraryVersion {
+  id: number
+  document_id: number | null
+  session_id: string | null
+  version: number
+  content: { sections?: { title?: string; content?: string }[]; raw_text?: string } | null
+  render_config: Record<string, unknown> | null
+  sections: ResumeLibrarySection[]
+  is_current: boolean
+  created_at: string
+}
+
+export interface ResumeLibraryDoc {
+  id: number
+  title: string
+  source: string
+  current_version_id: number | null
+  version_count: number
+  deleted_at: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  versions?: ResumeLibraryVersion[]
+  current_version?: ResumeLibraryVersion | null
+}
+
+export interface RewriteCandidateVO {
+  rewrite: string
+  approach: string
+  changes: string[]
+  new_numbers: string[]
+}
+
+export interface RewriteResult {
+  section_id: number
+  version_id: number
+  candidates: RewriteCandidateVO[]
+  needs_source_confirmation: boolean
+  new_numbers: string[]
+  new_claims: string[]
+  advice: string | null
+}
+
+export interface DiffRow {
+  type: 'same' | 'del' | 'ins'
+  oldText: string | null
+  newText: string | null
+}
