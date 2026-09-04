@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.interview import router as interview_router
+from app.api.matching import router as matching_router
 from app.api.preferences import router as preferences_router
 from app.api.profile import router as profile_router
 from app.api.proposals import router as proposals_router
@@ -97,5 +98,6 @@ app.include_router(preferences_router, prefix="/api/preferences", tags=["prefere
 app.include_router(profile_router, prefix="/api/profile", tags=["profile"])
 app.include_router(proposals_router, prefix="/api/profile/proposals", tags=["proposals"])
 app.include_router(resume_library_router, prefix="/api/resumes", tags=["resume-library"])
+app.include_router(matching_router, prefix="/api/matching", tags=["matching"])
 app.include_router(sessions_router, prefix="/api/sessions", tags=["sessions"])
 app.include_router(interview_router, prefix="/api/interview", tags=["interview"])

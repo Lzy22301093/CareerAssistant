@@ -429,3 +429,59 @@ export interface DiffRow {
   oldText: string | null
   newText: string | null
 }
+
+// === 岗位匹配（阶段2 指令2-4） ===
+
+export interface JobPostingVO {
+  id: number
+  company: string | null
+  title: string | null
+  jd_text: string | null
+  source: string
+  task_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface MatchGapItem {
+  category?: string
+  requirement?: string
+  current_level?: string
+  gap_severity?: string
+  suggestion?: string
+}
+
+export interface MatchStageStep {
+  step: string
+  status: string
+  at: string
+}
+
+export interface MatchSummary {
+  company?: string
+  posting_title?: string
+  score?: number
+  overall?: number
+  strengths?: string[]
+  gaps?: MatchGapItem[]
+  recommendations?: string[]
+  jd_analysis?: Record<string, unknown>
+  draft?: { sections?: { title?: string; content?: string }[]; raw_text?: string } | null
+  stage_history?: MatchStageStep[]
+  error?: string
+  finished_at?: string
+}
+
+export interface MatchTaskVO {
+  id: number
+  job_posting_id: number | null
+  company: string | null
+  posting_title: string | null
+  resume_version_id: number | null
+  page_preference: string
+  score: number | null
+  stage: string
+  summary: MatchSummary | null
+  created_at: string
+  updated_at: string
+}

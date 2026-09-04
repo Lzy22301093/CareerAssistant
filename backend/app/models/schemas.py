@@ -367,3 +367,53 @@ class SectionAdoptRequest(BaseModel):
     """采纳区域改写：以替换后的内容生成新版本。"""
     section_id: int = Field(..., description="被改写的区域 ID")
     rewrite: str = Field(..., min_length=1, description="采纳的改写文本")
+
+
+# === 岗位匹配任务（阶段2 指令2-4） ===
+
+class JobPostingCreate(BaseModel):
+    """新建岗位 JD 资产。"""
+    company: str = Field(..., min_length=1, max_length=100, description="公司名称")
+    title: str = Field(..., min_length=1, max_length=100, description="岗位名称")
+    jd_text: str = Field(..., min_length=1, description="JD 原文")
+    jd_image: str | None = None
+    source: str = Field(default="manual", description="manual | upload | scrape")
+
+
+class JobPostingOut(BaseModel):
+    """岗位资产输出。"""
+    id: int
+    company: str | None = None
+    title: str | None = None
+    jd_text: str | None = None
+    source: str
+    task_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class MatchTaskCreate(BaseModel):
+    """新建匹配任务。"""
+    job_posting_id: int = Field(..., description="岗位资产 ID")
+    resume_version_id: int | None = Field(default=None, description="所用简历版本（可选，缺省用已确认画像）")
+    page_preference: str = Field(default="one_page", description="one_page | two_pages")
+
+
+class MatchTaskOut(BaseModel):
+    """匹配任务输出。"""
+    id: int
+    job_posting_id: int | None = None
+    company: str | None = None
+    posting_title: str | None = None
+    resume_version_id: int | None = None
+    page_preference: str
+    score: int | None = None
+    stage: str
+    summary: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MatchRunRequest(BaseModel):
+    """执行匹配分析。"""
+    with_draft: bool = Field(default=True, description="是否生成定向简历草稿")

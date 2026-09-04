@@ -4,7 +4,14 @@
       <router-link to="/workspace" class="ghost-link">AI 助手工作台</router-link>
     </AppNav>
 
-    <div class="layout">
+    <div class="ws-tabs">
+      <button class="ws-tab" :class="{ active: tab === 'library' }" @click="tab = 'library'">简历库</button>
+      <button class="ws-tab" :class="{ active: tab === 'matching' }" @click="tab = 'matching'">匹配</button>
+    </div>
+
+    <MatchWorkspace v-if="tab === 'matching'" />
+
+    <div v-else class="layout">
       <!-- 左：文档列表 / 回收站 -->
       <aside class="doc-rail">
         <div class="rail-header">
@@ -251,6 +258,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import AppNav from '../components/AppNav.vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import RewriteCompareDialog from '../components/resume/RewriteCompareDialog.vue'
+import MatchWorkspace from '../components/matching/MatchWorkspace.vue'
 import {
   createResumeDoc,
   deleteResumeDoc,
@@ -285,6 +293,8 @@ import {
 } from 'lucide-vue-next'
 
 const SECTION_COLORS = ['#2563eb', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#dc2626', '#65a30d']
+
+const tab = ref<'library' | 'matching'>('library')
 const SECTION_TYPE_LABELS: Record<string, string> = {
   header: '基本信息',
   summary: '自我评价',
@@ -667,6 +677,31 @@ defineExpose({ openImportDialog })
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+.ws-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-6);
+  background: var(--color-bg);
+  border-bottom: var(--border-light);
+}
+.ws-tab {
+  padding: 6px 18px;
+  border: var(--border-light);
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.ws-tab:hover {
+  color: var(--color-text-primary);
+}
+.ws-tab.active {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
+  font-weight: var(--weight-medium);
 }
 .ghost-link {
   font-size: 13px;
