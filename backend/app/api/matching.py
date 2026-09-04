@@ -85,17 +85,10 @@ async def run_matching(
 ):
     """执行匹配分析（JD 分析 → 差距定位 → 定向草稿）。"""
     try:
-        from app.agents.content_generator import ContentGeneratorAgent
-        from app.agents.gap_analyzer import GapAnalyzerAgent
-        from app.agents.jd_analyzer import JDAnalyzerAgent
         from app.llm import create_llm_provider
 
         llm = create_llm_provider()
-        agents = {
-            "jd_analyzer": JDAnalyzerAgent(llm),
-            "gap_analyzer": GapAnalyzerAgent(llm),
-            "content_generator": ContentGeneratorAgent(llm),
-        }
+        agents = service.build_match_agents(llm)
         task = await service.run_matching(db, user["id"], task_id, agents, with_draft=data.with_draft)
     except MatchError as e:
         # 任务失败时 stage=failed 已落库，前端可看到现场；HTTP 仍返回可读错误

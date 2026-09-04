@@ -29,6 +29,21 @@ class MatchError(ValueError):
     """匹配业务错误。"""
 
 
+def build_match_agents(llm: Any) -> dict[str, Any]:
+    """匹配链路 agent：沿用 create_agents 的模型分层（jd/gap=FAST_MODEL，content=主模型）。
+
+    必须经工厂创建而非直接实例化，否则 jd/gap 会回落到昂贵的主模型（延迟与成本劣化）。
+    """
+    from app.agents import create_agents
+
+    all_agents = create_agents(llm)
+    return {
+        "jd_analyzer": all_agents["jd_analyzer"],
+        "gap_analyzer": all_agents["gap_analyzer"],
+        "content_generator": all_agents["content_generator"],
+    }
+
+
 class MatchService:
     """岗位资产 + 匹配任务。"""
 

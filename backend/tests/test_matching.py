@@ -144,3 +144,20 @@ async def test_export_draft_to_library(db_session: Session):
     doc, version = svc.export_draft_to_library(db_session, 1, task.id)
     assert doc.title == "tiktok·agent开发 定向简历"
     assert version.version == 1 and len(version.sections) == 1
+
+
+def test_build_match_agents_uses_factory_tiers(db_session: Session):
+    """匹配链路 agent 必须来自 create_agents 工厂（jd/gap 注入 FAST_MODEL 分层）。"""
+    from app.config import settings
+
+    from app.services.matching_service import build_match_agents
+
+    class _L:
+        pass
+
+    agents = build_match_agents(_L())
+    assert set(agents) == {"jd_analyzer", "gap_analyzer", "content_generator"}
+    # FAST_MODEL 配置为空时工厂回落主模型（model=None）；配置时必须等于 fast_model
+    expected = settings.fast_model or None
+    assert agents["jd_analyzer"].model == expected
+    assert agents["gap_analyzer"].model == expected

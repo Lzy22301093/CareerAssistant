@@ -199,3 +199,22 @@ async def test_adopt_rejects_foreign_section(db_session: Session, section_row):
     other_version = lib.add_version(db_session, 1, other_doc.id, ResumeVersionCreate(content=CONTENT))
     with pytest.raises(ResumeLibraryError):
         lib.adopt_section_rewrite(db_session, 1, other_version.id, section_row.id, "x")
+
+
+async def test_rewrite_endpoint_maps_timeout_to_504(monkeypatch):
+    """AGENT_TIMEOUT 触发的 TimeoutError 应映射为 504，而非裸 500。"""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from app.api import resume_library as rl
+    from app.models.schemas import SectionRewriteRequest
+
+    async def _boom(*args, **kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(rl.rewrite_service, "generate_candidates", _boom)
+    with pytest.raises(HTTPException) as ei:
+        await rl.rewrite_section(1, SectionRewriteRequest(instruction="x"), user={"id": 1}, db=None)
+    assert ei.value.status_code == 504
+    assert "超时" in ei.value.detail

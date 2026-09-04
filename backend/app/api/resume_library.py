@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -254,6 +255,9 @@ async def rewrite_section(
         )
     except SectionRewriteError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except asyncio.TimeoutError:
+        # BaseAgent 的 AGENT_TIMEOUT 到点抛 TimeoutError，映射为可读的 504
+        raise HTTPException(status_code=504, detail="改写生成超时（LLM 响应过慢），请稍后重试或简化指令")
     except ValueError as e:
         # LLM provider 初始化失败（缺 key）等环境性错误
         raise HTTPException(status_code=503, detail=f"改写能力不可用: {e}")
