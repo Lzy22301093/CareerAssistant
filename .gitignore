@@ -256,6 +256,11 @@ $RECYCLE.BIN/
 .env.*
 !.env.example
 
+# Agent 本地配置（可能含明文密钥，仅存本机）
+.claude/settings.local.json
+CLAUDE.local.md
+AGENTS.local.md
+
 # 上传/导出产物
 uploads/
 backend/uploads/
@@ -264,6 +269,7 @@ backend/exports/
 
 # 夜间运行临时目录
 .ptmp/
+.ptmp*/
 
 # 产品参考资料（27MB 截图），只读不入库
 逆向工程/
