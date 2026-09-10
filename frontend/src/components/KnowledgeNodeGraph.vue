@@ -4,7 +4,10 @@
       <!-- center node -->
       <circle :cx="cx" :cy="cy" r="34" class="center-ring" />
       <circle :cx="cx" :cy="cy" r="30" class="center-fill" />
-      <text :x="cx" :y="cy + 6" text-anchor="middle" class="center-label">个人</text>
+      <template v-if="avatarUrl">
+        <image :href="avatarUrl" :x="cx - 28" :y="cy - 28" width="56" height="56" preserveAspectRatio="xMidYMid slice" class="center-avatar" />
+      </template>
+      <text v-else :x="cx" :y="cy + 6" text-anchor="middle" class="center-label">个人</text>
 
       <!-- spokes + category nodes -->
       <g v-for="node in nodes" :key="node.category">
@@ -25,8 +28,14 @@
           <text :x="node.x" :y="node.y - 4" text-anchor="middle" class="cat-count">
             {{ node.count }}
           </text>
-          <text :x="node.x" :y="node.y + (node.r > 18 ? 18 : 12)" text-anchor="middle" class="cat-name">
-            {{ node.label }}
+          <text
+            :x="node.x"
+            :y="node.y + (node.r > 18 ? 18 : 12)"
+            text-anchor="middle"
+            class="cat-name"
+            :class="{ long: node.labelShort.length > 4 }"
+          >
+            {{ node.labelShort }}
           </text>
         </g>
       </g>
@@ -45,6 +54,7 @@ import type { CategorySummary, ProfileCategory } from '../types'
 const props = defineProps<{
   categories: CategorySummary[]
   activeCategory?: string
+  avatarUrl?: string
 }>()
 
 const emit = defineEmits<{
@@ -64,6 +74,13 @@ const CATEGORY_LABELS: Record<ProfileCategory, string> = {
   target: '目标岗位',
   soft: '自我评价',
   interview_feedback: '面试反馈',
+  award: '个人奖项',
+  social: '社交账号',
+}
+
+// 中文标签较长时用省略号截断，避免超出节点溢出；英文回退名同样处理
+function truncateLabel(text: string, max = 5): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
 const nodes = computed(() => {
@@ -76,9 +93,11 @@ const nodes = computed(() => {
     const angle = startAngle + i * angleStep
     const x = cx + radius * Math.cos(angle)
     const y = cy + radius * Math.sin(angle)
+    const label = CATEGORY_LABELS[c.category] || c.category
     return {
       category: c.category,
-      label: CATEGORY_LABELS[c.category] || c.category,
+      label,
+      labelShort: truncateLabel(label),
       count: c.count,
       x,
       y,
@@ -103,48 +122,61 @@ const nodes = computed(() => {
 }
 .center-ring {
   fill: none;
-  stroke: var(--el-color-primary-light-5, #93c5fd);
+  stroke: var(--color-accent-200);
   stroke-width: 2;
   stroke-dasharray: 4 4;
 }
 .center-fill {
-  fill: var(--el-color-primary-light-8, #eff6ff);
-  stroke: var(--el-color-primary);
+  fill: var(--color-accent-50);
+  stroke: var(--color-accent-600);
   stroke-width: 1.5;
+}
+.center-avatar {
+  clip-path: circle(28px at 50% 50%);
 }
 .center-label {
   font-size: 14px;
   font-weight: var(--weight-semibold);
-  fill: var(--color-text-primary, #1f2937);
+  fill: var(--color-text-primary);
 }
 .spoke {
-  stroke: var(--color-gray-300, #d1d5db);
+  stroke: var(--color-gray-300);
   stroke-width: 1.5;
   stroke-dasharray: 5 4;
 }
 .spoke.active {
-  stroke: var(--el-color-primary);
+  stroke: var(--color-accent-600);
 }
 .cat-node {
   cursor: pointer;
+  outline: none;
 }
 .cat-circle {
-  fill: var(--color-bg, #fff);
-  stroke: var(--color-gray-400, #9ca3af);
+  fill: var(--color-bg-elevated);
+  stroke: var(--color-gray-400);
   stroke-width: 1.5;
+  transition: stroke var(--duration-fast) var(--ease-default), fill var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
 }
 .cat-node.active .cat-circle {
-  stroke: var(--el-color-primary);
-  fill: var(--el-color-primary-light-8, #eff6ff);
+  stroke: var(--color-accent-600);
+  fill: var(--color-accent-50);
 }
 .cat-count {
   font-size: 13px;
   font-weight: var(--weight-semibold);
-  fill: var(--color-text-primary, #1f2937);
+  fill: var(--color-text-primary);
 }
 .cat-name {
   font-size: 11px;
-  fill: var(--color-text-secondary, #6b7280);
+  fill: var(--color-text-secondary);
+}
+.cat-name.long {
+  font-size: 10px;
+}
+.cat-node.active .cat-name {
+  fill: var(--color-accent-700);
+  font-weight: var(--weight-semibold);
 }
 .graph-empty {
   position: absolute;
@@ -157,7 +189,7 @@ const nodes = computed(() => {
   color: var(--color-text-secondary);
 }
 .graph-empty .sub {
-  font-size: 12px;
+  font-size: var(--text-xs);
   opacity: 0.8;
 }
 </style>

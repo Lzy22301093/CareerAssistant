@@ -1,48 +1,49 @@
 <template>
   <div class="login-page">
-    <!-- 左侧品牌区 -->
+    <!-- 左侧品牌区：暖米纸感 + 陶土橙 -->
     <div class="login-brand">
+      <div class="brand-orb brand-orb--1" aria-hidden="true"></div>
+      <div class="brand-orb brand-orb--2" aria-hidden="true"></div>
+
       <div class="brand-content">
         <div class="brand-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="16" y1="13" x2="8" y2="13"/>
-            <line x1="16" y1="17" x2="8" y2="17"/>
-            <polyline points="10 9 9 9 8 9"/>
-          </svg>
+          <Sparkles :size="26" />
         </div>
         <h1 class="brand-title">CareerAssistant</h1>
         <p class="brand-subtitle">AI 求职助手</p>
         <p class="brand-desc">
-          贴入目标岗位 JD，上传简历，<br/>
-          获得差距分析、优化简历和面试准备。
+          贴入目标岗位 JD，上传简历，<br />
+          获得差距分析、优化简历与面试准备。
         </p>
 
-        <!-- CSS 装饰线条 -->
-        <div class="brand-decoration">
-          <div class="deco-line deco-line--1"></div>
-          <div class="deco-line deco-line--2"></div>
-          <div class="deco-line deco-line--3"></div>
-          <div class="deco-line deco-line--4"></div>
-          <div class="deco-line deco-line--5"></div>
-        </div>
+        <ul class="brand-features">
+          <li><Check :size="15" /> 岗位分析 · 差距诊断</li>
+          <li><Check :size="15" /> 简历优化 · 高保真导出</li>
+          <li><Check :size="15" /> AI 模拟面试 · 语音对话</li>
+        </ul>
+      </div>
+
+      <!-- 装饰：简历卡片剪影 -->
+      <div class="brand-resume" aria-hidden="true">
+        <div class="resume-accent"></div>
+        <div class="resume-line resume-line--wide"></div>
+        <div class="resume-line"></div>
+        <div class="resume-line resume-line--short"></div>
+        <div class="resume-gap"></div>
+        <div class="resume-line resume-line--wide"></div>
+        <div class="resume-line resume-line--short"></div>
       </div>
     </div>
 
-    <!-- 右侧表单区 -->
+    <!-- 右侧表单区：暖白卡 -->
     <div class="login-form-area">
       <div class="login-form-wrapper">
         <h2 class="form-title">登录</h2>
         <p class="form-subtitle">欢迎回来，请输入你的账号信息</p>
 
-        <!-- 内联错误提示 -->
+        <!-- 内联错误 -->
         <div v-if="errorMsg" class="form-error">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
+          <AlertCircle :size="16" />
           <span>{{ errorMsg }}</span>
         </div>
 
@@ -76,10 +77,10 @@
 
           <el-form-item>
             <el-button
+              class="submit-btn"
               type="primary"
               :loading="loading"
               size="large"
-              style="width: 100%"
               @click="handleLogin"
             >
               登录
@@ -99,6 +100,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { type FormInstance, type FormRules } from 'element-plus'
+import { Sparkles, Check, AlertCircle } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
@@ -139,113 +141,167 @@ async function handleLogin() {
 .login-page {
   display: flex;
   min-height: 100vh;
-  background: var(--color-gray-50);
+  background: var(--color-bg-page);
 }
 
 /* ── 左侧品牌区 ── */
 .login-brand {
-  width: 40%;
-  background: var(--color-gray-900);
+  width: 46%;
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-12);
-  position: relative;
-  overflow: hidden;
+  background:
+    radial-gradient(circle at 82% 16%, color-mix(in srgb, var(--color-accent-500) 18%, transparent), transparent 46%),
+    radial-gradient(circle at 12% 92%, color-mix(in srgb, var(--color-accent-200) 32%, transparent), transparent 42%),
+    linear-gradient(160deg, var(--color-bg) 0%, var(--color-bg-page) 52%, var(--color-accent-50) 100%);
+}
+
+/* 纸感装饰圆斑 */
+.brand-orb {
+  position: absolute;
+  border-radius: var(--radius-full);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+.brand-orb--1 {
+  width: 340px;
+  height: 340px;
+  top: -120px;
+  right: -80px;
+  background: color-mix(in srgb, var(--color-accent-200) 45%, transparent);
+  opacity: 0.5;
+}
+
+.brand-orb--2 {
+  width: 260px;
+  height: 260px;
+  bottom: -110px;
+  left: -90px;
+  background: color-mix(in srgb, var(--color-accent-100) 55%, transparent);
+  opacity: 0.6;
 }
 
 .brand-content {
   position: relative;
   z-index: 1;
-  color: var(--color-gray-50);
+  max-width: 360px;
+  color: var(--color-text-primary);
 }
 
 .brand-icon {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent-600) 12%, var(--color-bg));
+  color: var(--color-accent-600);
+  border: var(--border-light);
+  border-radius: var(--radius-lg);
   margin-bottom: var(--space-6);
-  color: var(--color-accent-400);
+  box-shadow: var(--shadow-card);
 }
 
 .brand-title {
-  font-family: var(--font-sans);
-  font-size: var(--text-2xl);
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
   font-weight: var(--font-weight-semibold);
   margin: 0 0 var(--space-2);
   letter-spacing: -0.02em;
+  color: var(--color-gray-900);
 }
 
 .brand-subtitle {
-  font-size: var(--text-sm);
-  color: var(--color-gray-400);
+  font-size: var(--text-md);
+  color: var(--color-accent-600);
   margin: 0 0 var(--space-8);
   font-weight: var(--font-weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .brand-desc {
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
-  color: var(--color-gray-300);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-8);
+}
+
+.brand-features {
+  list-style: none;
   margin: 0;
-  max-width: 280px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-/* CSS 装饰线条 */
-.brand-decoration {
+.brand-features li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.brand-features li svg {
+  color: var(--color-accent-600);
+  flex-shrink: 0;
+}
+
+/* 装饰：简历卡片剪影 */
+.brand-resume {
   position: absolute;
-  bottom: -40px;
   right: -40px;
-  width: 300px;
-  height: 300px;
-  opacity: 0.06;
+  bottom: -46px;
+  width: 220px;
+  height: 260px;
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+  border: var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-5) var(--space-5);
+  transform: rotate(-7deg);
+  opacity: 0.55;
 }
 
-.deco-line {
+.resume-accent {
+  width: 4px;
+  height: 100%;
   position: absolute;
-  background: white;
-  border-radius: 1px;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  margin: var(--space-5) 0;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    180deg,
+    var(--color-accent-400),
+    var(--color-accent-600)
+  );
 }
 
-.deco-line--1 {
-  width: 180px;
-  height: 2px;
-  top: 40px;
-  left: 20px;
+.resume-line {
+  width: 70%;
+  height: 8px;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-gray-300) 60%, transparent);
 }
 
-.deco-line--2 {
-  width: 140px;
-  height: 2px;
-  top: 60px;
-  left: 20px;
+.resume-line--wide {
+  width: 96%;
 }
 
-.deco-line--3 {
-  width: 160px;
-  height: 2px;
-  top: 80px;
-  left: 20px;
+.resume-line--short {
+  width: 46%;
 }
 
-.deco-line--4 {
-  width: 100px;
-  height: 2px;
-  top: 100px;
-  left: 20px;
-}
-
-.deco-line--5 {
-  width: 120px;
-  height: 2px;
-  top: 120px;
-  left: 20px;
+.resume-gap {
+  height: var(--space-4);
 }
 
 /* ── 右侧表单区 ── */
@@ -255,16 +311,21 @@ async function handleLogin() {
   align-items: center;
   justify-content: center;
   padding: var(--space-12);
-  background: var(--color-bg);
+  background: var(--color-bg-page);
 }
 
 .login-form-wrapper {
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
+  background: var(--color-bg-elevated);
+  border: var(--border-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-10);
 }
 
 .form-title {
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: var(--text-xl);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
@@ -275,6 +336,13 @@ async function handleLogin() {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
   margin: 0 0 var(--space-8);
+}
+
+/* 焦点环：accent 200 外圈 + accent 600 内圈 */
+.login-form-wrapper :deep(.el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px var(--color-accent-600) inset,
+    0 0 0 4px color-mix(in srgb, var(--color-accent-600) 14%, transparent);
 }
 
 /* ── 内联错误 ── */
@@ -295,6 +363,10 @@ async function handleLogin() {
 .form-error svg {
   flex-shrink: 0;
   margin-top: 1px;
+}
+
+.submit-btn {
+  width: 100%;
 }
 
 /* ── 底部链接 ── */
@@ -323,16 +395,22 @@ async function handleLogin() {
 
   .login-brand {
     width: 100%;
-    padding: var(--space-8) var(--space-6);
+    padding: var(--space-10) var(--space-6);
     min-height: auto;
   }
 
-  .brand-decoration {
+  .brand-orb,
+  .brand-resume {
     display: none;
   }
 
   .login-form-area {
     padding: var(--space-8) var(--space-6);
+  }
+
+  .login-form-wrapper {
+    padding: var(--space-8) var(--space-6);
+    box-shadow: none;
   }
 }
 </style>

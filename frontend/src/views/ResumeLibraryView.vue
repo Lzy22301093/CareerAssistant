@@ -23,6 +23,13 @@
             <el-button v-if="!recycleMode" size="small" type="primary" @click="onCreate">
               <Plus :size="14" style="margin-right: 4px" />新建
             </el-button>
+            <el-button v-if="!recycleMode" size="small" plain type="primary" @click="uploadInput?.click()">
+              <Upload :size="14" style="margin-right: 4px" />上传
+            </el-button>
+            <el-button v-if="!recycleMode" size="small" plain @click="router.push('/resume-generation')">
+              <Wand2 :size="14" style="margin-right: 4px" />生成
+            </el-button>
+            <input ref="uploadInput" type="file" accept=".pdf,.docx,.txt,.md" hidden @change="onUploadFile" />
           </div>
         </div>
 
@@ -98,6 +105,16 @@
               >
                 v{{ v.version }}{{ v.id === currentDoc.current_version_id ? ' · 当前' : '' }}
               </el-tag>
+              <el-radio-group
+                v-if="viewedVersion"
+                size="small"
+                class="page-pref"
+                :model-value="pagePref"
+                @change="onSetPagePreference"
+              >
+                <el-radio-button value="one_page">1 页</el-radio-button>
+                <el-radio-button value="two_pages">2 页</el-radio-button>
+              </el-radio-group>
               <el-button
                 v-if="viewedVersion && viewedVersion.id !== currentDoc.current_version_id"
                 size="small"
@@ -269,10 +286,12 @@ import {
   restoreResumeDoc,
   rewriteSection,
   rollbackResumeVersion,
+  setVersionPagePreference,
   updateResumeDoc,
   updateResumeSection,
 } from '../api/resumeLibrary'
 import { listSessions } from '../api/sessions'
+import { importUploadResume } from '../api/resumeGeneration'
 import type {
   ResumeLibraryDoc,
   ResumeLibrarySection,
@@ -281,6 +300,7 @@ import type {
   SessionListItem,
 } from '../types'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   FileText,
   Library,
@@ -290,9 +310,34 @@ import {
   SquareDashedMousePointer,
   Trash2,
   Upload,
+  Wand2,
 } from 'lucide-vue-next'
 
-const SECTION_COLORS = ['#2563eb', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#dc2626', '#65a30d']
+const SECTION_COLORS = ['#c15f3c', '#b85c6e', '#6f8f5f', '#b57b1f', '#8a5a83', '#4c7f7d', '#9c4a2b', '#7a8b3a']
+
+const router = useRouter()
+const uploadInput = ref<HTMLInputElement | null>(null)
+
+async function onUploadFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const { value } = await ElMessageBox.prompt('给这份简历起个名字', '上传简历', {
+      inputValue: file.name.replace(/\.[^.]+$/, ''),
+      inputPattern: /.+/,
+      inputErrorMessage: '名称不能为空',
+    })
+    await importUploadResume(value.trim(), file)
+    ElMessage.success('已解析并导入简历库')
+    await loadDocs()
+  } catch (err: unknown) {
+    if (err !== 'cancel' && !(err as Error | undefined)?.message?.includes('cancel')) {
+      ElMessage.error(extractError(err, '上传失败（支持 PDF/DOCX/TXT/MD）'))
+    }
+  }
+}
 
 const tab = ref<'library' | 'matching'>('library')
 const SECTION_TYPE_LABELS: Record<string, string> = {
@@ -305,7 +350,7 @@ const SECTION_TYPE_LABELS: Record<string, string> = {
   certification: '证书',
   custom: '自定义',
 }
-const SOURCE_LABELS: Record<string, string> = { manual: '手动新建', session: '会话生成', upload: '上传' }
+const SOURCE_LABELS: Record<string, string> = { manual: '手动新建', session: '会话生成', upload: '上传', generation: '生成' }
 const STAGE_LABELS: Record<string, string> = {
   init: '初始化',
   has_jd: '已上传 JD',
@@ -347,6 +392,18 @@ const viewedVersion = computed<ResumeLibraryVersion | null>(
   () => versions.value.find((v) => v.id === viewedVersionId.value) ?? null
 )
 const viewedSections = computed<ResumeLibrarySection[]>(() => viewedVersion.value?.sections ?? [])
+const pagePref = computed<'one_page' | 'two_pages'>(
+  () => (viewedVersion.value?.render_config?.page_preference === 'two_pages' ? 'two_pages' : 'one_page'),
+)
+async function onSetPagePreference(val: string | number | boolean | undefined) {
+  if (!viewedVersion.value) return
+  const pref: 'one_page' | 'two_pages' = val === 'two_pages' ? 'two_pages' : 'one_page'
+  const updated = await setVersionPagePreference(viewedVersion.value.id, pref)
+  if (currentDoc.value?.versions) {
+    const idx = currentDoc.value.versions.findIndex((v) => v.id === updated.id)
+    if (idx >= 0) currentDoc.value.versions[idx] = updated
+  }
+}
 const selectedSection = computed<ResumeLibrarySection | null>(
   () => viewedSections.value.find((s) => s.id === selectedSectionId.value) ?? null
 )

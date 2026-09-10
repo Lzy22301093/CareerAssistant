@@ -15,9 +15,7 @@
       <!-- 空状态 -->
       <div v-if="session.messages.length === 0" class="empty-hint">
         <div class="empty-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
+          <MessageSquare :size="22" />
         </div>
         <p class="empty-title">开始新的对话</p>
         <p class="empty-desc">点击「新建会话」开始，然后输入目标岗位 JD 或上传简历文件</p>
@@ -74,7 +72,8 @@
     <div class="input-area">
       <!-- 面试进行中：提示使用语音面板 -->
       <div v-if="session.interviewActive" class="interview-active-hint">
-        🎤 面试进行中，请使用右侧语音面板进行回答
+        <Mic :size="14" />
+        <span>面试进行中，请使用右侧语音面板进行回答</span>
       </div>
       <template v-else>
         <div class="input-actions">
@@ -112,7 +111,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted } from 'vue'
-import { Plus, Upload } from 'lucide-vue-next'
+import { Plus, Upload, MessageSquare, Mic } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import { sendMessageSSE, uploadFile } from '../api/sessions'
@@ -283,16 +282,17 @@ async function handleFileUpload(file: File) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-gray-100);
+  background: color-mix(in srgb, var(--color-accent-600) 12%, white);
   border-radius: var(--radius-lg);
-  color: var(--color-gray-400);
+  color: var(--color-accent-600);
   margin-bottom: var(--space-4);
 }
 
 .empty-title {
   margin: 0 0 var(--space-2);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-text-primary);
 }
 
@@ -331,20 +331,24 @@ async function handleFileUpload(file: File) {
 /* ── 用户消息 ── */
 .message-user .message-bubble {
   background: var(--color-accent-600);
-  color: var(--color-white);
+  color: #fff;
   margin-left: 40px;
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .message-user .message-time {
   text-align: right;
 }
 
-/* ── 助手消息 ── */
+/* ── 助手消息：暖白纸感笔记卡 ── */
 .message-assistant .message-bubble {
-  background: var(--color-gray-100);
+  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
+  border: var(--border-light);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  max-width: 82%;
 }
 
 .message-assistant .message-time {
@@ -430,11 +434,15 @@ async function handleFileUpload(file: File) {
 }
 
 .interview-active-hint {
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: var(--space-3);
-  color: var(--color-text-secondary);
+  color: var(--color-accent-600);
   font-size: var(--text-sm);
-  background: var(--color-bg-hover);
+  background: var(--color-accent-50);
+  border: var(--border-light);
   border-radius: var(--radius-md);
 }
 </style>

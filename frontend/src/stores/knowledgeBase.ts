@@ -31,6 +31,8 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
     target: '目标岗位',
     soft: '自我评价',
     interview_feedback: '面试反馈',
+    award: '个人奖项',
+    social: '社交账号',
   }
 
   async function fetchItems(category?: string, status?: string) {

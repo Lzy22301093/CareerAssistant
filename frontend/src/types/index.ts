@@ -205,6 +205,8 @@ export type ProfileCategory =
   | 'target'
   | 'soft'
   | 'interview_feedback'
+  | 'award'
+  | 'social'
 
 export type ProfileItemType = 'fact' | 'suggestion' | 'feedback'
 
@@ -262,6 +264,139 @@ export interface CategorySummary {
   count: number
   confirmed: number
   suggested: number
+}
+
+// === 结构化画像表单（知识库 分阶段向导，阶段3） ===
+
+export interface ProfileEducationEntry {
+  school: string
+  degree: string
+  major: string
+  courses: string
+  start: string
+  end: string
+  gpa: string
+}
+
+export interface ProfileSocialEntry {
+  platform: string
+  account: string
+}
+
+export interface ProfileExtraEntry {
+  category: string
+  title: string
+  content: string
+}
+
+export interface ProfileFormSave {
+  basic_info: Record<string, string>
+  education: ProfileEducationEntry[]
+  awards: string
+  social: ProfileSocialEntry[]
+  extra: ProfileExtraEntry[]
+}
+
+export interface ProfileFormData {
+  basic_info: Record<string, string>
+  education: ProfileEducationEntry[]
+  awards: string[]
+  social: ProfileSocialEntry[]
+  extra: ProfileExtraEntry[]
+}
+
+export interface DirectionCandidate {
+  title: string
+  reason: string
+  detail: string
+}
+
+export interface SoftInfo {
+  personality: string
+  vision: string
+  disinterested: string
+  self_eval: string
+}
+
+export type JobApplicationStatus = 'applied' | 'written_test' | 'interview' | 'offer' | 'rejected'
+export type JobApplicationResult = 'ongoing' | 'passed' | 'failed'
+
+export interface JobApplication {
+  id: number
+  company: string | null
+  job_title: string | null
+  status: JobApplicationStatus
+  result: JobApplicationResult
+  notes: string | null
+  applied_at: string
+  created_at: string
+}
+
+export interface JobApplicationCreate {
+  company: string
+  job_title: string
+  status?: JobApplicationStatus
+  notes?: string | null
+  applied_at?: string | null
+}
+
+export interface JobApplicationUpdate {
+  company?: string
+  job_title?: string
+  status?: JobApplicationStatus
+  notes?: string | null
+}
+
+export interface JobApplicationSummary {
+  total: number
+  by_status: Record<string, number>
+  by_result: Record<JobApplicationResult, number>
+}
+
+// === 简历生成区（8 步向导） ===
+
+export interface WizardExperience {
+  exp_type: string
+  company: string
+  title: string
+  duration: string
+  duty: string
+  achievement: string
+  situation: string
+  task: string
+  action: string
+  result: string
+}
+
+export interface WizardGeneratePayload {
+  title: string
+  basic_info: Record<string, unknown>
+  directions: string[]
+  experiences: WizardExperience[]
+  soft_info: Record<string, unknown>
+  photo_id: number | null
+  module_order: string[]
+  page_preference: 'one_page' | 'two_pages'
+  polish: boolean
+  import_to_library: boolean
+}
+
+export interface WizardGenerateResult {
+  content: { sections: { title: string; content: string }[]; raw_text: string }
+  document: ResumeLibraryDoc | null
+}
+
+export interface ResumeDraftInfo {
+  step: number | null
+  data: Record<string, unknown>
+  updated_at: string | null
+}
+
+export interface ResumePhotoInfo {
+  id: number
+  filename: string
+  url: string
+  created_at: string
 }
 
 export interface ProfileUpdateProposal {

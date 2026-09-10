@@ -48,6 +48,11 @@ export const listResumeVersions = (docId: number) =>
 export const rollbackResumeVersion = (versionId: number) =>
   client.post<ResumeLibraryDoc>(`/resumes/versions/${versionId}/rollback`).then((r) => r.data)
 
+export const setVersionPagePreference = (versionId: number, pagePreference: 'one_page' | 'two_pages') =>
+  client
+    .post<ResumeLibraryVersion>(`/resumes/versions/${versionId}/page-preference`, { page_preference: pagePreference })
+    .then((r) => r.data)
+
 export const updateResumeSection = (sectionId: number, data: Partial<ResumeLibrarySection>) =>
   client.patch<ResumeLibrarySection>(`/resumes/sections/${sectionId}`, data).then((r) => r.data)
 

@@ -11,28 +11,45 @@
         新建匹配
       </button>
       <div class="history-body">
+        <!-- loading -->
         <div v-if="loading" class="pad">
           <SkeletonLoader v-for="i in 2" :key="i" variant="card" :lines="2" style="margin-bottom: 12px" />
         </div>
-        <div v-else-if="tasks.length === 0" class="history-empty">
-          <p class="empty-title">暂无匹配记录</p>
-          <p class="empty-hint">在右侧粘贴岗位 JD，开始第一次匹配分析。</p>
-        </div>
-        <div
-          v-for="t in tasks"
-          :key="t.id"
-          class="history-item"
-          :class="{ active: currentTask?.id === t.id }"
-          @click="selectTask(t)"
+        <!-- error -->
+        <ScreenState
+          v-else-if="historyError"
+          type="error"
+          title="匹配历史加载失败"
+          :desc="historyError"
         >
-          <div class="history-item-title">{{ t.company }} · {{ t.posting_title }}</div>
-          <div class="history-item-meta">
-            <span>{{ formatDate(t.updated_at) }}</span>
-            <span class="score-num" :class="scoreClass(t.score)">{{ t.score ?? '—' }}</span>
-            <el-button size="small" link type="primary" @click.stop="selectTask(t)">详情</el-button>
-            <el-button size="small" link type="danger" @click.stop="onDelete(t)">删除</el-button>
+          <el-button size="small" type="primary" plain @click="load">重试</el-button>
+        </ScreenState>
+        <!-- empty -->
+        <ScreenState
+          v-else-if="tasks.length === 0"
+          type="empty"
+          title="暂无匹配记录"
+          desc="在右侧粘贴岗位 JD，开始第一次匹配分析。"
+        />
+        <!-- data -->
+        <template v-else>
+          <div
+            v-for="t in tasks"
+            :key="t.id"
+            class="history-item"
+            :class="{ active: currentTask?.id === t.id }"
+            @click="selectTask(t)"
+          >
+            <div class="history-item-title">{{ t.company }} · {{ t.posting_title }}</div>
+            <div class="history-item-meta">
+              <span>{{ formatDate(t.updated_at) }}</span>
+              <el-tag v-if="isRunningTask(t)" size="small" type="warning" effect="plain" disable-transitions>运行中</el-tag>
+              <span class="score-num" :class="scoreClass(t.score)">{{ t.score ?? '—' }}</span>
+              <el-button size="small" link type="primary" @click.stop="selectTask(t)">详情</el-button>
+              <el-button size="small" link type="danger" @click.stop="onDelete(t)">删除</el-button>
+            </div>
           </div>
-        </div>
+        </template>
       </div>
     </aside>
 
@@ -50,17 +67,38 @@
       <!-- 结果 -->
       <template v-else>
         <div class="result-header">
-          <span class="dot" />
+          <span class="dot" :class="{ running: isRunning }" />
           <h3 class="result-title">{{ currentTask.company }} · {{ currentTask.posting_title }}</h3>
           <el-tag size="small" :type="stageTagType" disable-transitions>{{ stageLabel }}</el-tag>
           <el-tag v-if="currentTask.score !== null" size="small" type="warning" disable-transitions>
             SCORE {{ currentTask.score }}
           </el-tag>
+          <span v-if="isRunning" class="running-hint">任务已提交 · 正在后台轮询运行中</span>
         </div>
 
         <div class="result-body">
+          <!-- 运行中态（长时间任务：提交后进入后台/轮询，非仅按钮转圈） -->
+          <div v-if="isRunning" class="running-panel">
+            <div class="running-head">
+              <Loader2 :size="20" class="spin" />
+              <div class="running-copy">
+                <p class="running-title">正在分析目标岗位…</p>
+                <p class="running-desc">预计 1-8 分钟。任务已提交后台，您可以先做其他事，返回后会自动刷新进度。</p>
+              </div>
+            </div>
+            <div v-if="stages.length" class="stage-row">
+              <div v-for="(s, i) in stages" :key="i" class="stage-step" :class="s.status">
+                <span class="stage-idx">{{ String(i + 1).padStart(2, '0') }}</span>
+                <span class="stage-name">{{ s.step }}</span>
+                <span class="stage-status">{{ s.status === 'done' ? '✓' : s.status === 'failed' ? '✕' : '…' }}</span>
+              </div>
+            </div>
+            <SkeletonLoader v-else variant="text" :lines="3" />
+          </div>
+
+          <!-- 失败态 -->
           <el-alert
-            v-if="currentTask.stage === 'failed'"
+            v-else-if="currentTask.stage === 'failed'"
             type="error"
             :closable="false"
             :title="currentTask.summary?.error || '匹配分析失败'"
@@ -68,7 +106,8 @@
             <el-button size="small" type="primary" plain :loading="running" @click="run">重新分析</el-button>
           </el-alert>
 
-          <template v-if="summary">
+          <!-- 结果态 -->
+          <template v-else-if="summary">
             <!-- 总评分数 -->
             <div class="score-panel">
               <div class="score-big" :class="scoreClass(currentTask.score)">{{ currentTask.score ?? '—' }}<span class="score-unit">/100</span></div>
@@ -78,8 +117,8 @@
             </div>
 
             <!-- 阶段历史 -->
-            <div class="stage-row">
-              <div v-for="(s, i) in summary.stage_history ?? []" :key="i" class="stage-step" :class="s.status">
+            <div v-if="summary.stage_history?.length" class="stage-row">
+              <div v-for="(s, i) in summary.stage_history" :key="i" class="stage-step" :class="s.status">
                 <span class="stage-idx">{{ String(i + 1).padStart(2, '0') }}</span>
                 <span class="stage-name">{{ s.step }}</span>
                 <span class="stage-status">{{ s.status === 'done' ? '✓' : s.status === 'failed' ? '✕' : '…' }}</span>
@@ -169,8 +208,8 @@
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="running" :disabled="!formValid" @click="onCreateAndRun">
-          {{ running ? '分析中…（约 1-3 分钟）' : '开始匹配分析' }}
+        <el-button type="primary" :loading="submitting || running" :disabled="!formValid || submitting || running" @click="onCreateAndRun">
+          {{ submitting || running ? '提交中…（约 1-3 分钟）' : '开始匹配分析' }}
         </el-button>
       </template>
     </el-dialog>
@@ -178,13 +217,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus } from 'lucide-vue-next'
+import { Loader2, Plus } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkeletonLoader from '../SkeletonLoader.vue'
+import ScreenState from '../ScreenState.vue'
 import { createMatchTask, createPosting, deleteMatchTask, exportMatchDraft, listMatchTasks, runMatching } from '../../api/matching'
 import type { MatchTaskVO } from '../../types'
+
+const ACTIVE_TASK_KEY = 'match:activeTaskId'
+const POLL_MS = 4000
 
 const router = useRouter()
 
@@ -192,13 +235,19 @@ const tasks = ref<MatchTaskVO[]>([])
 const currentTask = ref<MatchTaskVO | null>(null)
 const loading = ref(false)
 const running = ref(false)
+const submitting = ref(false)
 const exporting = ref(false)
 const createVisible = ref(false)
+const historyError = ref('')
 
 const form = reactive({ company: '', title: '', jdText: '', pagePreference: 'one_page' as 'one_page' | 'two_pages' })
 
+let pollTimer: number | null = null
+
 const formValid = computed(() => form.company.trim() && form.title.trim() && form.jdText.trim())
 const summary = computed(() => currentTask.value?.summary ?? null)
+const stages = computed(() => currentTask.value?.summary?.stage_history ?? [])
+const isRunning = computed(() => running.value || currentTask.value?.stage === 'analyzing')
 const stageLabel = computed(() => {
   const map: Record<string, string> = { created: '待分析', analyzing: '分析中', done: '已完成', failed: '失败' }
   return map[currentTask.value?.stage ?? ''] ?? currentTask.value?.stage
@@ -213,6 +262,10 @@ const stageTagType = computed(() => {
   return map[currentTask.value?.stage ?? ''] ?? 'info'
 })
 
+function isRunningTask(t: MatchTaskVO) {
+  return t.stage === 'analyzing'
+}
+
 function scoreClass(score: number | null) {
   if (score === null || score === undefined) return ''
   if (score >= 75) return 'high'
@@ -225,24 +278,86 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+function persistActiveTask(id: number | null) {
+  try {
+    if (id === null) localStorage.removeItem(ACTIVE_TASK_KEY)
+    else localStorage.setItem(ACTIVE_TASK_KEY, String(id))
+  } catch {
+    /* localStorage 不可用时静默忽略 */
+  }
+}
+
 async function load() {
   loading.value = true
+  historyError.value = ''
   try {
     tasks.value = await listMatchTasks()
+    // 合并当前选中任务，并做"切页返回刷新状态"处理
     if (currentTask.value) {
       const fresh = tasks.value.find((t) => t.id === currentTask.value?.id)
       if (fresh) currentTask.value = fresh
-      else currentTask.value = null
+      else {
+        currentTask.value = null
+        persistActiveTask(null)
+      }
+    }
+    // 恢复上次选中的任务（切页/路由返回后能回到原任务并看到最新状态）
+    if (!currentTask.value && tasks.value.length) {
+      const stored = Number(localStorage.getItem(ACTIVE_TASK_KEY))
+      const restored = tasks.value.find((t) => t.id === stored)
+      if (restored) {
+        currentTask.value = restored
+        if (restored.stage === 'analyzing') {
+          running.value = true
+          startPolling()
+        }
+      } else {
+        persistActiveTask(null)
+      }
     }
   } catch (err: unknown) {
-    ElMessage.error(extractError(err, '匹配历史加载失败'))
+    historyError.value = extractError(err, '匹配历史加载失败')
   } finally {
     loading.value = false
   }
 }
 
+// ---- 轮询：长任务运行中态，实时刷新 stage / stage_history ----
+
+function startPolling() {
+  if (pollTimer !== null) return
+  pollTimer = window.setInterval(() => {
+    void refreshRunningTask()
+  }, POLL_MS)
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function refreshRunningTask() {
+  if (!currentTask.value) return
+  try {
+    const list = await listMatchTasks()
+    const fresh = list.find((t) => t.id === currentTask.value?.id)
+    if (!fresh) return
+    currentTask.value = fresh
+    // 轮询检测到终态时结束运行中态（runMatching 返回同样会走到 finally 兜底）
+    if (fresh.stage === 'done' || fresh.stage === 'failed') {
+      running.value = false
+      stopPolling()
+    }
+  } catch {
+    /* 轮询失败静默，下一轮重试 */
+  }
+}
+
 function selectTask(t: MatchTaskVO) {
   currentTask.value = t
+  persistActiveTask(t.id)
 }
 
 function openCreate() {
@@ -254,33 +369,49 @@ function openCreate() {
 }
 
 async function onCreateAndRun() {
-  if (!formValid.value || running.value) return
-  running.value = true
+  if (!formValid.value || submitting.value || running.value) return
+  submitting.value = true
   try {
     const posting = await createPosting({ company: form.company.trim(), title: form.title.trim(), jd_text: form.jdText.trim() })
     const task = await createMatchTask({ job_posting_id: posting.id, page_preference: form.pagePreference })
     createVisible.value = false
     currentTask.value = task
+    persistActiveTask(task.id)
     await run()
   } catch (err: unknown) {
     ElMessage.error(extractError(err, '创建匹配任务失败'))
   } finally {
-    running.value = false
+    submitting.value = false
   }
 }
 
 async function run() {
   if (!currentTask.value || running.value) return
   running.value = true
+  startPolling()
   try {
-    currentTask.value = await runMatching(currentTask.value.id)
-    await load()
+    await runMatching(currentTask.value.id)
+    await refreshAfterRun()
     ElMessage.success(`匹配完成，得分 ${currentTask.value.score ?? '—'}`)
   } catch (err: unknown) {
     ElMessage.error(extractError(err, '匹配分析失败'))
-    await load()
+    await refreshAfterRun()
   } finally {
     running.value = false
+    stopPolling()
+  }
+}
+
+// 运行结束后的兜底刷新：拉取并合并后端最终状态（结果态 / 失败态）
+async function refreshAfterRun() {
+  if (!currentTask.value) return
+  try {
+    const list = await listMatchTasks()
+    tasks.value = list
+    const fresh = list.find((t) => t.id === currentTask.value?.id)
+    if (fresh) currentTask.value = fresh
+  } catch {
+    /* 失败态已由错误处理补充提示 */
   }
 }
 
@@ -291,7 +422,10 @@ async function onDelete(t: MatchTaskVO) {
     return
   }
   await deleteMatchTask(t.id)
-  if (currentTask.value?.id === t.id) currentTask.value = null
+  if (currentTask.value?.id === t.id) {
+    currentTask.value = null
+    persistActiveTask(null)
+  }
   await load()
 }
 
@@ -315,6 +449,10 @@ function extractError(err: unknown, fallback: string): string {
 }
 
 onMounted(load)
+onBeforeUnmount(() => {
+  stopPolling()
+  if (running.value && currentTask.value?.id) persistActiveTask(currentTask.value.id)
+})
 </script>
 
 <style scoped>
@@ -350,25 +488,23 @@ onMounted(load)
   justify-content: center;
   gap: var(--space-1);
   padding: 10px;
-  border: 1px dashed var(--el-color-primary);
+  border: 1px dashed var(--color-accent-600);
   border-radius: var(--radius-md);
-  background: var(--el-color-primary-light-9, #eff6ff);
-  color: var(--el-color-primary);
+  background: var(--color-accent-50);
+  color: var(--color-accent-600);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-default), background var(--duration-fast) var(--ease-default);
 }
 .new-match-btn:hover {
-  filter: brightness(0.98);
+  background: var(--color-accent-100);
+  border-color: var(--color-accent-500);
 }
 .history-body {
   flex: 1;
   overflow: auto;
   padding: var(--space-3) var(--space-4);
-}
-.history-empty {
-  text-align: center;
-  padding: var(--space-6) 0;
 }
 .history-item {
   border: var(--border-light);
@@ -376,13 +512,14 @@ onMounted(load)
   padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-2);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
 }
 .history-item:hover {
-  border-color: var(--color-accent-400, #60a5fa);
+  border-color: var(--color-accent-400);
 }
 .history-item.active {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+  border-color: var(--color-accent-600);
+  box-shadow: 0 0 0 1px var(--color-accent-600) inset;
 }
 .history-item-title {
   font-size: var(--text-sm);
@@ -396,7 +533,8 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-2xs, 11px);
+  flex-wrap: wrap;
+  font-size: var(--text-2xs);
   color: var(--color-text-secondary);
 }
 .score-num {
@@ -415,7 +553,7 @@ onMounted(load)
 .match-main {
   min-height: 0;
   overflow: auto;
-  background: var(--color-bg-page, #f8fafc);
+  background: var(--color-bg-page);
 }
 .match-empty {
   height: 100%;
@@ -424,8 +562,8 @@ onMounted(load)
   justify-content: center;
 }
 .upload-card {
-  border: 2px dashed var(--color-gray-300, #d1d5db);
-  border-radius: var(--radius-lg, 8px);
+  border: 2px dashed var(--color-gray-300);
+  border-radius: var(--radius-lg);
   background: var(--color-bg);
   padding: var(--space-8) var(--space-10);
   display: flex;
@@ -433,16 +571,19 @@ onMounted(load)
   align-items: center;
   gap: var(--space-2);
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-default), transform var(--duration-fast) var(--ease-default);
 }
 .upload-card:hover {
-  border-color: var(--el-color-primary);
+  border-color: var(--color-accent-600);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 .upload-badge {
   width: 48px;
   height: 48px;
   border-radius: var(--radius-full);
-  background: var(--color-text-primary);
-  color: #fff;
+  background: var(--color-accent-600);
+  color: var(--color-white);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -457,18 +598,29 @@ onMounted(load)
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   background: var(--color-bg);
-  border-bottom: 2px solid var(--el-color-primary);
+  border-bottom: 2px solid var(--color-accent-600);
 }
 .dot {
   width: 8px;
   height: 8px;
   border-radius: var(--radius-full);
-  background: var(--el-color-primary);
+  background: var(--color-accent-600);
+  flex-shrink: 0;
+}
+.dot.running {
+  background: var(--color-warning-600);
+  animation: dot-pulse 1.2s infinite ease-in-out;
 }
 .result-title {
   margin: 0;
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
+}
+.running-hint {
+  margin-left: auto;
+  font-size: var(--text-2xs);
+  color: var(--color-warning-600);
+  font-weight: var(--weight-medium);
 }
 .result-body {
   padding: var(--space-4);
@@ -476,6 +628,42 @@ onMounted(load)
   flex-direction: column;
   gap: var(--space-4);
   max-width: 920px;
+}
+.running-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.running-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.spin {
+  flex-shrink: 0;
+  color: var(--color-accent-600);
+  animation: spin 1s linear infinite;
+}
+.running-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.running-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+.running-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
 }
 .score-panel {
   display: flex;
@@ -540,7 +728,7 @@ onMounted(load)
 }
 .stage-idx {
   font-family: var(--font-mono);
-  font-size: var(--text-2xs, 11px);
+  font-size: var(--text-2xs);
 }
 .block {
   background: var(--color-bg);
@@ -601,7 +789,7 @@ onMounted(load)
   width: 100%;
 }
 .pref-card {
-  border: var(--border-medium, 1px solid var(--color-border-strong, #d1d5db));
+  border: var(--border-medium);
   border-radius: var(--radius-md);
   padding: var(--space-3);
   text-align: left;
@@ -610,21 +798,27 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  transition: border-color var(--duration-fast) var(--ease-default), background var(--duration-fast) var(--ease-default);
 }
 .pref-card.active {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9, #eff6ff);
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-50);
 }
 .pref-name {
   font-weight: var(--weight-semibold);
   font-size: var(--text-sm);
 }
 .pref-desc {
-  font-size: var(--text-2xs, 11px);
+  font-size: var(--text-2xs);
   color: var(--color-text-secondary);
   line-height: 1.5;
 }
 .pad {
   padding: var(--space-2);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

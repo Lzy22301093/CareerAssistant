@@ -1,19 +1,12 @@
 <template>
   <div class="result-panel">
     <!-- 无数据时的空状态 -->
-    <div v-if="!session.sessionId" class="empty-state">
-      <div class="empty-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
-        </svg>
-      </div>
-      <h3 class="empty-title">CareerAssistant</h3>
-      <p class="empty-desc">在左侧对话面板中输入 JD 和简历，分析结果将在此展示</p>
-    </div>
+    <ScreenState
+      v-if="!session.sessionId"
+      type="empty"
+      title="CareerAssistant"
+      desc="在左侧对话面板中输入 JD 和简历，分析结果将在此展示"
+    />
 
     <!-- 有数据时的 Tab 展示 -->
     <div v-else class="panel-with-tabs">
@@ -373,6 +366,7 @@ import { useSessionStore } from '../stores/session'
 import { exportResume } from '../api/sessions'
 import SkeletonLoader from './SkeletonLoader.vue'
 import VoiceInterviewPanel from './VoiceInterviewPanel.vue'
+import ScreenState from './ScreenState.vue'
 
 const session = useSessionStore()
 const exporting = ref(false)
@@ -515,15 +509,16 @@ function renderMarkdown(text: string): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-gray-100);
+  background: color-mix(in srgb, var(--color-accent-600) 12%, white);
   border-radius: var(--radius-lg);
-  color: var(--color-gray-400);
+  color: var(--color-accent-600);
   margin-bottom: var(--space-4);
 }
 
 .empty-title {
   margin: 0 0 var(--space-2);
-  font-size: var(--text-lg);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
   font-weight: var(--weight-semibold);
   color: var(--color-text-primary);
 }
@@ -583,7 +578,8 @@ function renderMarkdown(text: string): string {
 
 .section-title {
   margin: var(--space-4) 0 var(--space-2);
-  font-size: var(--text-base);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
   font-weight: var(--weight-semibold);
   color: var(--color-text-primary);
 }
@@ -596,9 +592,10 @@ function renderMarkdown(text: string): string {
 
 /* ── 匹配度进度条 ── */
 .score-section {
-  background: var(--color-gray-50);
+  background: var(--color-bg-elevated);
   border: var(--border-light);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
 }
@@ -637,9 +634,10 @@ function renderMarkdown(text: string): string {
 
 /* ── 工作经历卡片 ── */
 .experience-card {
-  background: var(--color-gray-50);
+  background: var(--color-bg-elevated);
   border: var(--border-light);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   padding: var(--space-4);
 }
 
@@ -664,9 +662,10 @@ function renderMarkdown(text: string): string {
 
 /* ── 项目卡片 ── */
 .project-card {
-  background: var(--color-gray-50);
+  background: var(--color-bg-elevated);
   border: var(--border-light);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   padding: var(--space-4);
   margin-bottom: var(--space-3);
 }

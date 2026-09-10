@@ -1,17 +1,20 @@
 <template>
-  <el-drawer :model-value="modelValue" title="历史会话" @close="$emit('update:modelValue', false)" size="350px">
-    <div v-if="loading" v-loading="true" style="height: 200px" />
-
-    <div v-else-if="sessions.length === 0" class="empty">
-      <div class="empty-icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <polyline points="12 6 12 12 16 14"/>
-        </svg>
-      </div>
-      <p class="empty-text">暂无历史会话</p>
+  <el-drawer :model-value="modelValue" title="历史会话" @close="$emit('update:modelValue', false)" size="360px">
+    <!-- 加载 -->
+    <div v-if="loading">
+      <SkeletonLoader variant="card" :lines="3" />
     </div>
 
+    <!-- 空态 -->
+    <div v-else-if="sessions.length === 0" class="empty">
+      <div class="empty-icon">
+        <History :size="26" />
+      </div>
+      <p class="empty-text">暂无历史会话</p>
+      <p class="empty-hint">开始一段新对话，进度会自动保存于此。</p>
+    </div>
+
+    <!-- 列表 -->
     <div v-else class="session-list">
       <div
         v-for="s in sessions"
@@ -42,9 +45,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { History } from 'lucide-vue-next'
 import { useSessionStore } from '../stores/session'
 import { listSessions } from '../api/sessions'
 import type { SessionListItem } from '../types'
+import SkeletonLoader from './SkeletonLoader.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 defineEmits<{ 'update:modelValue': [val: boolean] }>()
@@ -100,13 +105,24 @@ async function handleDelete(id: string) {
 </script>
 
 <style scoped>
+/* 抽屉标题：衬线体 */
+:deep(.el-drawer__header) {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: 0;
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-light);
+}
+
 .empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding-top: var(--space-10);
-  color: var(--color-text-disabled);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
 }
 
 .empty-icon {
@@ -115,14 +131,23 @@ async function handleDelete(id: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-gray-100);
+  background: color-mix(in srgb, var(--color-accent-600) 12%, var(--color-bg));
+  color: var(--color-accent-600);
   border-radius: var(--radius-md);
-  margin-bottom: var(--space-3);
+  border: var(--border-light);
+  margin-bottom: var(--space-4);
 }
 
 .empty-text {
   margin: 0;
   font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.empty-hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
   color: var(--color-text-secondary);
 }
 
@@ -136,12 +161,18 @@ async function handleDelete(id: string) {
   padding: var(--space-3);
   border: var(--border-light);
   border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
   cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-default);
+  transition:
+    border-color var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
 }
 
 .session-item:hover {
   border-color: var(--color-accent-600);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 .session-item.active {

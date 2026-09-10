@@ -12,7 +12,7 @@
       <!-- 空状态 -->
       <div v-if="state.stage === 'idle' && state.chatLog.length === 0" class="vi-empty">
         <el-button type="primary" size="large" @click="handleStart">
-          <el-icon><Microphone /></el-icon>
+          <Mic :size="18" />
           {{ mode === 'chat' ? '开始语音对话' : '开始面试' }}
         </el-button>
       </div>
@@ -41,7 +41,7 @@
 
       <!-- 思考中 -->
       <div v-if="state.stage === 'thinking'" class="vi-thinking">
-        <el-icon class="spin"><Loading /></el-icon>
+        <Loader2 :size="16" class="spin" />
         {{ mode === 'chat' ? 'AI 正在思考...' : '面试官正在思考...' }}
       </div>
 
@@ -80,7 +80,7 @@
       <!-- 录音中：显示停止/打断按钮 -->
       <template v-if="state.recording">
         <el-button type="warning" circle size="large" @click="handleEndOfSpeech">
-          <el-icon><VideoPause /></el-icon>
+          <Square :size="18" />
         </el-button>
         <span class="vi-hint">点击结束回答</span>
       </template>
@@ -88,7 +88,7 @@
       <!-- AI 播放中：显示打断按钮 -->
       <template v-else-if="state.playing">
         <el-button type="danger" circle size="large" @click="handleInterrupt">
-          <el-icon><CloseBold /></el-icon>
+          <X :size="18" />
         </el-button>
         <span class="vi-hint">点击打断</span>
       </template>
@@ -96,7 +96,7 @@
       <!-- 等待用户说话 -->
       <template v-else-if="state.stage === 'listening' || state.stage === 'idle'">
         <el-button type="primary" circle size="large" @click="handleStartRecording">
-          <el-icon><Microphone /></el-icon>
+          <Mic :size="18" />
         </el-button>
         <span class="vi-hint">点击开始回答</span>
       </template>
@@ -130,7 +130,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { Microphone, Loading, VideoPause, CloseBold } from '@element-plus/icons-vue'
+import { Mic, Loader2, Square, X } from 'lucide-vue-next'
 import { useVoiceChat, type UseVoiceChatOptions } from '../composables/useVoiceChat'
 import { useSessionStore } from '../stores/session'
 
@@ -273,13 +273,13 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 16px;
-  gap: 12px;
+  padding: var(--space-4);
+  gap: var(--space-3);
 }
 
 .vi-header {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
@@ -288,7 +288,7 @@ onMounted(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .vi-empty {
@@ -299,50 +299,43 @@ onMounted(() => {
 }
 
 .vi-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 4px;
-}
-
-.vi-text {
-  font-size: 15px;
-  line-height: 1.6;
-  padding: 8px 12px;
-  background: var(--el-fill-color-light);
-  border-radius: 8px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
 }
 
 /* 对话历史条目 */
 .vi-chat-entry {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .vi-chat-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
 }
 
 .vi-chat-text {
-  font-size: 15px;
-  line-height: 1.6;
-  padding: 8px 12px;
-  border-radius: 8px;
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   word-break: break-word;
 }
 
 .vi-chat-user .vi-chat-text {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-text-color-primary);
-  margin-left: 40px;
-  border-radius: 8px 8px 2px 8px;
+  background: var(--color-accent-50);
+  color: var(--color-text-primary);
+  margin-left: var(--space-10);
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-sm) var(--radius-md);
 }
 
 .vi-chat-ai .vi-chat-text {
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
-  margin-right: 40px;
-  border-radius: 8px 8px 8px 2px;
+  background: var(--color-bg-page);
+  border: var(--border-light);
+  color: var(--color-text-primary);
+  margin-right: var(--space-10);
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-md) var(--radius-sm);
 }
 
 .vi-chat-pending {
@@ -353,13 +346,14 @@ onMounted(() => {
 .vi-thinking {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
 }
 
 .spin {
   animation: spin 1s linear infinite;
+  color: var(--color-accent-600);
 }
 
 @keyframes spin {
@@ -368,25 +362,43 @@ onMounted(() => {
 }
 
 .vi-report {
-  margin-top: 8px;
+  margin-top: var(--space-2);
+}
+
+.vi-report :deep(.el-card__header) {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.vi-report ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+}
+
+.vi-report li {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
 
 .vi-footer {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border-light);
 }
 
 .vi-hint {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
 }
 
 .vi-text-input {
   width: 100%;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 </style>

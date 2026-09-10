@@ -4,55 +4,69 @@
  * 所有视觉设计变量集中定义于此。
  * 组件样式应引用这些变量，而非硬编码色值/间距等。
  *
- * 参考：DESIGN.md
+ * 风格基调：Claude · 暖米色纸感 · 衬线标题 · 陶土橙强调
+ * 参考：DESIGN.md · FResume 参考产品截图
  */
 
 /* ============================================================
-   1. Color — Neutrals (偏暖灰/slate 色系)
+   1. Color — Neutrals (暖米灰/slate 色系，偏暖)
    ============================================================ */
 :root {
-  --color-gray-950: #0f1117;
-  --color-gray-900: #1a1d24;   /* 主要文字 */
-  --color-gray-700: #3d4250;   /* 次要文字 */
-  --color-gray-500: #6b7280;   /* 辅助文字、占位符 */
-  --color-gray-400: #9ca3af;   /* 禁用状态文字 */
-  --color-gray-300: #d1d5db;   /* 边框 */
-  --color-gray-200: #e5e7eb;   /* 分割线 */
-  --color-gray-100: #f3f4f6;   /* 表头背景、hover 背景 */
-  --color-gray-50:  #f9fafb;   /* 页面背景 */
+  --color-gray-950: #23211c;
+  --color-gray-900: #2d2a26;   /* 主要文字 */
+  --color-gray-700: #55524a;   /* 次要文字 */
+  --color-gray-500: #827d72;   /* 辅助文字、占位符 */
+  --color-gray-400: #a8a294;   /* 禁用状态文字 */
+  --color-gray-300: #d8d2c4;   /* 边框(强) */
+  --color-gray-200: #e6e0d2;   /* 边框、分割线 */
+  --color-gray-100: #eee9dd;   /* 表头背景、hover 背景 */
+  --color-gray-50:  #f6f2ea;   /* 页面背景 */
   --color-white:    #ffffff;   /* 卡片、输入框背景 */
 
   /* ============================================================
-     2. Color — Accent (主题色，蓝色)
+     2. Color — Accent (主题色，陶土橙/珊瑚，Claude 风格)
      ============================================================ */
-  --color-accent-600: #2563eb;  /* 主按钮、链接、活跃状态 */
-  --color-accent-500: #3b82f6;  /* hover 状态 */
-  --color-accent-400: #60a5fa;  /* 浅色强调 */
-  --color-accent-100: #dbeafe;  /* 轻量背景 */
-  --color-accent-50:  #eff6ff;  /* 极轻背景 */
+  --color-accent-700: #9c4a2b;  /* 深层强调（hover 加深） */
+  --color-accent-600: #c15f3c;  /* 主按钮、链接、活跃状态 */
+  --color-accent-500: #d97757;  /* 品牌珊瑚色 */
+  --color-accent-400: #e08d6d;  /* 浅色强调 */
+  --color-accent-200: #f3cdbb;  /* 极浅描边/焦点环 */
+  --color-accent-100: #f7e2d7;  /* 轻量背景 */
+  --color-accent-50:  #fbf0e9;  /* 极轻背景 */
+
+  /* 兼容旧引用：--color-primary-* */
+  --color-primary-600: var(--color-accent-600);
+  --color-primary-500: var(--color-accent-500);
+  --color-primary-400: var(--color-accent-400);
+  --color-primary-200: var(--color-accent-200);
+  --color-primary-100: var(--color-accent-100);
+  --color-primary-50:  var(--color-accent-50);
 
   /* ============================================================
-     3. Color — Semantic (语义色)
+     3. Color — Semantic (语义色，暖调)
      ============================================================ */
-  --color-success-600: #16a34a;
-  --color-success-50:  #f0fdf4;
+  --color-success-600: #3d7a56;
+  --color-success-50:  #edf6ef;
 
-  --color-warning-600: #ca8a04;
-  --color-warning-50:  #fefce8;
+  --color-warning-600: #b57b1f;
+  --color-warning-50:  #fdf6e6;
 
-  --color-danger-600: #dc2626;
-  --color-danger-50:  #fef2f2;
+  --color-danger-600: #c94b4b;
+  --color-danger-50:  #fceeee;
 
-  --color-info-600: #0284c7;
-  --color-info-50:  #f0f9ff;
+  --color-info-600: #4c6b9e;
+  --color-info-50:  #eef2f8;
 
   /* ============================================================
-     3b. Color — Semantic Aliases (常用语义别名)
+     3b. Color — Semantic Aliases
      ============================================================ */
-  --color-bg:             var(--color-white);
+  --color-bg:             #fbf9f4;  /* 卡片/面板背景（暖白） */
+  --color-bg-elevated:    #ffffff;  /* 弹层、展开内容背景 */
+  --color-bg-hover:       var(--color-gray-50);
   --color-bg-page:        var(--color-gray-50);
   --color-text-primary:   var(--color-gray-900);
   --color-text-secondary: var(--color-gray-700);
+  --color-text-tertiary:  var(--color-gray-500);
   --color-text-disabled:  var(--color-gray-400);
   --color-border:         var(--color-gray-200);
   --color-border-strong:  var(--color-gray-300);
@@ -68,11 +82,13 @@
 
   /* ============================================================
      4. Typography — Font Family
+     标题衬线 / 正文无衬线，Claude 编辑感
      ============================================================ */
   --font-sans:  'Noto Sans SC', 'IBM Plex Sans', 'Helvetica Neue',
                 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
                 Arial, sans-serif;
-  --font-serif: 'Noto Serif SC', 'Georgia', serif;
+  --font-display: 'Noto Serif SC', 'Georgia', 'Times New Roman', serif;
+  --font-serif:  var(--font-display);
   --font-mono:  'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
 
   /* ============================================================
@@ -85,13 +101,16 @@
   --text-md:   16px;   /* 正文基准（简历内容） */
   --text-lg:   20px;   /* 板块标题 */
   --text-xl:   24px;   /* 页面级标题 */
+  --text-2xl:  30px;   /* 大标题（功能墙/登录） */
+  --text-3xl:  38px;   /* 特大标题（Hero） */
+  --text-4xl:  48px;   /* Hero 主标题 */
 
   /* ============================================================
      6. Typography — Line Height
      ============================================================ */
   --leading-tight:  1.3;  /* 标题 */
   --leading-normal: 1.5;  /* 表格 */
-  --leading-relaxed: 1.6; /* 正文 */
+  --leading-relaxed: 1.7; /* 正文 */
 
   /* ============================================================
      7. Typography — Font Weight
@@ -115,13 +134,15 @@
   --space-8:   32px;
   --space-10:  40px;
   --space-12:  48px;
+  --space-16:  64px;
 
   /* ============================================================
-     9. Border Radius
+     9. Border Radius (柔和、克制的圆角)
      ============================================================ */
-  --radius-sm:   2px;   /* 按钮、输入框、标签 */
-  --radius-md:   4px;   /* 卡片、表格、面板 */
-  --radius-lg:   6px;   /* 对话气泡、弹窗 */
+  --radius-sm:   6px;    /* 按钮、输入框、标签 */
+  --radius-md:   10px;   /* 卡片、表格、面板 */
+  --radius-lg:   14px;   /* 对话气泡、弹窗、主卡片 */
+  --radius-xl:   20px;   /* 大面板、Hero */
   --radius-full: 9999px; /* 圆形 */
 
   /* ============================================================
@@ -131,18 +152,19 @@
   --border-medium: 1px solid var(--color-gray-300);   /* 输入框默认态 */
 
   /* ============================================================
-     11. Shadow
+     11. Shadow (暖色柔和阴影)
      ============================================================ */
-  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.04);   /* 下拉菜单、tooltip */
-  --shadow-md:  0 2px 8px rgba(0, 0, 0, 0.06);   /* 悬浮卡片、drawer */
-  --shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.08);  /* 模态框 */
+  --shadow-sm:  0 1px 2px rgba(60, 50, 35, 0.05);    /* 下拉菜单、tooltip */
+  --shadow-md:  0 4px 14px rgba(60, 50, 35, 0.07);   /* 悬浮卡片、drawer */
+  --shadow-lg:  0 12px 32px rgba(60, 50, 35, 0.10);  /* 模态框 */
+  --shadow-card: 0 1px 3px rgba(60, 50, 35, 0.06), 0 6px 18px rgba(60, 50, 35, 0.05); /* 卡片 */
 
   /* ============================================================
      12. Motion — Duration
      ============================================================ */
-  --duration-fast:   100ms;
-  --duration-normal: 150ms;
-  --duration-slow:   250ms;
+  --duration-fast:   120ms;
+  --duration-normal: 180ms;
+  --duration-slow:   260ms;
 
   /* ============================================================
      13. Motion — Easing
@@ -153,7 +175,30 @@
 }
 
 /* ============================================================
-   14. Keyframes — Skeleton Pulse (骨架屏用)
+   14. Body — 全局默认（暖纸感底色 + 无衬线正文）
+   ============================================================ */
+body {
+  background-color: var(--color-bg-page);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 标题类元素默认使用衬线体（组件可用 --font-sans 覆盖） */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  color: var(--color-text-primary);
+}
+
+/* 用衬线体作为大标题的便捷类 */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+/* ============================================================
+   15. Keyframes — Skeleton Pulse (骨架屏用)
    ============================================================ */
 @keyframes skeleton-pulse {
   0%   { background-position: 200% 0; }
@@ -161,7 +206,7 @@
 }
 
 /* ============================================================
-   15. Keyframes — Dot Pulse (加载脉动点用)
+   16. Keyframes — Dot Pulse (加载脉动点用)
    ============================================================ */
 @keyframes dot-pulse {
   0%, 80%, 100% { opacity: 0; }

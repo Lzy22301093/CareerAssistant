@@ -43,23 +43,23 @@
       </div>
       <div class="diff-body">
         <div class="diff-col">
-          <p
-            v-for="(row, idx) in rows"
-            :key="'l' + idx"
-            class="diff-line"
-            :class="{ del: row.type === 'del' }"
-          >{{ row.oldText }}</p>
+          <template v-for="(row, idx) in rows" :key="'l' + idx">
+            <p v-if="row.oldText !== null" class="diff-line" :class="{ del: row.type === 'del' }">
+              {{ row.oldText }}
+            </p>
+          </template>
         </div>
         <div class="diff-col">
-          <p
-            v-for="(row, idx) in rows"
-            :key="'r' + idx"
-            class="diff-line"
-            :class="{ ins: row.type === 'ins' }"
-          >{{ row.newText }}</p>
+          <template v-for="(row, idx) in rows" :key="'r' + idx">
+            <p v-if="row.newText !== null" class="diff-line" :class="{ ins: row.type === 'ins' }">
+              {{ row.newText }}
+            </p>
+          </template>
         </div>
       </div>
-      <div v-if="result.advice" class="advice">💡 {{ result.advice }}</div>
+      <div v-if="result.advice" class="advice">
+        <Lightbulb :size="14" class="advice-icon" />{{ result.advice }}
+      </div>
     </div>
 
     <template #footer>
@@ -71,7 +71,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { Lightbulb, RefreshCw } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { RewriteResult, ResumeLibrarySection } from '../../types'
 import { diffLines } from '../../utils/diff'
@@ -131,16 +131,20 @@ async function onAdopt() {
   gap: var(--space-3);
 }
 .approach-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
   padding: var(--space-2) var(--space-3);
-  background: var(--el-color-danger-light-9, #fef2f2);
-  border-left: 3px solid var(--el-color-primary);
+  background: var(--color-accent-50);
+  border-left: 3px solid var(--color-accent-600);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
 }
 .approach-label {
   font-weight: var(--weight-semibold);
-  color: var(--color-text-primary);
-  margin-right: var(--space-2);
+  color: var(--color-accent-700);
+  flex-shrink: 0;
 }
 .approach-changes {
   color: var(--color-text-secondary);
@@ -159,7 +163,7 @@ async function onAdopt() {
   padding: var(--space-2) var(--space-3);
   border: var(--border-light);
   border-radius: var(--radius-md);
-  background: var(--color-gray-50, #f9fafb);
+  background: var(--color-gray-50);
 }
 .candidate-info {
   display: flex;
@@ -168,7 +172,7 @@ async function onAdopt() {
 }
 .candidate-name {
   font-weight: var(--weight-semibold);
-  color: var(--el-color-primary);
+  color: var(--color-accent-600);
   font-size: var(--text-sm);
 }
 .candidate-approach {
@@ -189,16 +193,16 @@ async function onAdopt() {
   gap: var(--space-2);
 }
 .legend {
-  font-size: var(--text-2xs, 11px);
+  font-size: var(--text-2xs);
   padding: 1px 6px;
   border-radius: var(--radius-full);
 }
 .legend.red {
-  background: var(--el-color-danger-light-9, #fef2f2);
+  background: var(--el-color-danger-light-9);
   color: var(--el-color-danger);
 }
 .legend.green {
-  background: var(--el-color-success-light-9, #f0fdf4);
+  background: var(--el-color-success-light-9);
   color: var(--el-color-success);
 }
 .diff-body {
@@ -213,6 +217,9 @@ async function onAdopt() {
 }
 .diff-col {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .diff-line {
   margin: 0;
@@ -225,16 +232,24 @@ async function onAdopt() {
   color: var(--color-text-primary);
 }
 .diff-line.del {
-  background: var(--el-color-danger-light-9, #fef2f2);
+  background: var(--el-color-danger-light-9);
   color: var(--el-color-danger);
   text-decoration: line-through;
 }
 .diff-line.ins {
-  background: var(--el-color-success-light-9, #f0fdf4);
+  background: var(--el-color-success-light-9);
   color: var(--el-color-success);
 }
 .advice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
+}
+.advice-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-accent-600);
 }
 </style>

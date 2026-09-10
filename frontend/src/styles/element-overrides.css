@@ -2,49 +2,50 @@
  * Element Plus Theme Overrides
  *
  * 通过 CSS 变量覆盖 Element Plus 默认主题，使其与 CareerAssistant
- * 设计系统（tokens.css）保持一致。此文件必须在 element-plus/dist/index.css 之后引入。
+ * 设计系统（tokens.css）保持一致（Claude 暖色纸感）。此文件必须
+ * 在 element-plus/dist/index.css 之后引入。
  *
  * 参考：DESIGN.md · Element Plus 主题覆盖方案
  */
 
 :root {
   /* ============================================================
-     1. Color — Primary (替换 Element Plus 默认蓝 #409eff)
+     1. Color — Primary (陶土橙/珊瑚，替换默认蓝 #409eff)
      ============================================================ */
   --el-color-primary:          var(--color-accent-600);
-  --el-color-primary-light-3:  var(--color-accent-400);
-  --el-color-primary-light-5:  #93bbfd;
+  --el-color-primary-light-3:  var(--color-accent-500);
+  --el-color-primary-light-5:  #e9a98b;
   --el-color-primary-light-7:  var(--color-accent-100);
   --el-color-primary-light-8:  var(--color-accent-100);
   --el-color-primary-light-9:  var(--color-accent-50);
-  --el-color-primary-dark-2:   #1d4ed8;
+  --el-color-primary-dark-2:   var(--color-accent-700);
 
   /* ============================================================
      2. Color — Semantic
      ============================================================ */
   --el-color-success:          var(--color-success-600);
-  --el-color-success-light-3:  #4ade80;
-  --el-color-success-light-5:  #86efac;
-  --el-color-success-light-7:  #bbf7d0;
-  --el-color-success-light-8:  #dcfce7;
+  --el-color-success-light-3:  #66a986;
+  --el-color-success-light-5:  #9cc9af;
+  --el-color-success-light-7:  #c9e3d3;
+  --el-color-success-light-8:  #dff0e6;
   --el-color-success-light-9:  var(--color-success-50);
-  --el-color-success-dark-2:   #15803d;
+  --el-color-success-dark-2:   #2f6144;
 
   --el-color-warning:          var(--color-warning-600);
-  --el-color-warning-light-3:  #eab308;
-  --el-color-warning-light-5:  #facc15;
-  --el-color-warning-light-7:  #fef08a;
-  --el-color-warning-light-8:  #fef9c3;
+  --el-color-warning-light-3:  #cf9c4d;
+  --el-color-warning-light-5:  #ddb774;
+  --el-color-warning-light-7:  #ecd3a3;
+  --el-color-warning-light-8:  #f5e8ce;
   --el-color-warning-light-9:  var(--color-warning-50);
-  --el-color-warning-dark-2:   #a16207;
+  --el-color-warning-dark-2:   #91621a;
 
   --el-color-danger:           var(--color-danger-600);
-  --el-color-danger-light-3:   #ef4444;
-  --el-color-danger-light-5:   #f87171;
-  --el-color-danger-light-7:   #fca5a5;
-  --el-color-danger-light-8:   #fecaca;
+  --el-color-danger-light-3:   #d97d7d;
+  --el-color-danger-light-5:   #e6a1a1;
+  --el-color-danger-light-7:   #f0c5c5;
+  --el-color-danger-light-8:   #f6dada;
   --el-color-danger-light-9:   var(--color-danger-50);
-  --el-color-danger-dark-2:    #b91c1c;
+  --el-color-danger-dark-2:    #a93c3c;
 
   --el-color-info:             var(--color-gray-500);
   --el-color-info-light-3:     var(--color-gray-400);
@@ -65,8 +66,8 @@
   /* ============================================================
      4. Border Radius
      ============================================================ */
-  --el-border-radius-base:    var(--radius-md);   /* 4px */
-  --el-border-radius-small:   var(--radius-sm);   /* 2px */
+  --el-border-radius-base:    var(--radius-md);   /* 10px */
+  --el-border-radius-small:   var(--radius-sm);   /* 6px */
   --el-border-radius-round:   var(--radius-full); /* 9999px */
 
   /* ============================================================
@@ -76,13 +77,14 @@
   --el-border-color-light:     var(--color-gray-100);
   --el-border-color-lighter:   var(--color-gray-50);
   --el-border-color-extra-light: var(--color-gray-50);
+  --el-border-color-hover:     var(--color-gray-300);
 
   /* ============================================================
      6. Background Color
      ============================================================ */
-  --el-bg-color-page:          var(--color-gray-50);
-  --el-bg-color:               var(--color-white);
-  --el-bg-color-overlay:       var(--color-white);
+  --el-bg-color-page:          var(--color-bg-page);
+  --el-bg-color:               var(--color-bg-elevated);
+  --el-bg-color-overlay:       var(--color-bg-elevated);
 
   /* ============================================================
      7. Text Color
@@ -105,8 +107,38 @@
   /* ============================================================
      9. Mask / Overlay
      ============================================================ */
-  --el-mask-color:             rgba(0, 0, 0, 0.5);
-  --el-mask-color-extra-light: rgba(0, 0, 0, 0.3);
+  --el-mask-color:             rgba(35, 33, 28, 0.45);
+  --el-mask-color-extra-light: rgba(35, 33, 28, 0.28);
+
+  /* ============================================================
+     10. 组件固定变量
+     ============================================================ */
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-disabled-bg-color: var(--color-gray-50);
+  --el-disabled-border-color: var(--color-gray-200);
+}
+
+/* ============================================================
+   Card — 暖白卡片 + 柔和阴影
+   ============================================================ */
+.el-card {
+  --el-card-border-color: var(--color-gray-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+/* ============================================================
+   Button — 圆润、温和
+   ============================================================ */
+.el-button {
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-fast) var(--ease-default);
+}
+.el-button--primary {
+  --el-button-hover-bg-color: var(--color-accent-500);
+  --el-button-hover-border-color: var(--color-accent-500);
+  --el-button-active-bg-color: var(--color-accent-700);
+  --el-button-active-border-color: var(--color-accent-700);
 }
 
 /* ============================================================
@@ -143,6 +175,7 @@
   --el-table-header-text-color: var(--color-text-secondary);
   --el-table-row-hover-bg-color: var(--color-gray-100);
   font-size: var(--text-sm);
+  --el-table-bg-color: transparent;
 }
 
 .el-table th.el-table__cell {
@@ -161,6 +194,7 @@
    ============================================================ */
 .el-tag {
   --el-tag-border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm);
 }
 
 /* ============================================================
@@ -184,12 +218,12 @@
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   color: var(--color-text-primary);
-  background: var(--color-white);
+  background: transparent;
   border-bottom: var(--border-light);
 }
 
 .el-collapse-item__wrap {
-  background: var(--color-white);
+  background: transparent;
 }
 
 .el-collapse-item__content {
@@ -197,4 +231,73 @@
   color: var(--color-text-secondary);
   line-height: var(--leading-relaxed);
   padding: var(--space-4);
+}
+
+/* ============================================================
+   Input / Textarea — 暖色边框 + 圆角
+   ============================================================ */
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: var(--radius-sm);
+}
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--color-accent-600) inset;
+}
+
+/* ============================================================
+   Dialog — 圆润、柔和阴影
+   ============================================================ */
+.el-dialog {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.el-drawer {
+  background: var(--color-bg);
+}
+
+/* ============================================================
+   Message / Notification — 温和反馈
+   ============================================================ */
+.el-message {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================================
+   Global — 选中色 / 滚动条 / 键盘焦点环（设计感细节）
+   ============================================================ */
+::selection {
+  background: color-mix(in srgb, var(--color-accent-600) 24%, transparent);
+  color: var(--color-text-primary);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gray-300) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray-300);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-400);
+  background-clip: content-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-200);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 链接默认色 */
+a {
+  color: var(--color-accent-600);
 }
