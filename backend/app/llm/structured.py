@@ -38,6 +38,10 @@ class _StructuredCallAgent(BaseAgent):
         self._system_prompt = system_prompt
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # 强制 LLM 输出合法 JSON（response_format=json_object）。
+        # 结构化能力单元只认 JSON；不开启时 MIMO 可能返回散文/markdown，
+        # 导致 extract_json 找不到 JSON 对象而"校验失败"。见 agents/base.py。
+        self.json_mode = True
 
     def build_messages(self, **kwargs) -> list[Message]:
         return [

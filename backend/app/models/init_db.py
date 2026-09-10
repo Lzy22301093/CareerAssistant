@@ -19,6 +19,8 @@ from app.models.orm import (  # noqa: F401
     ProfileItem,
     ProfileUpdateProposal,
     ResumeDocument,
+    ResumeDraft,
+    ResumePhoto,
     ResumeSection,
     ResumeVersion,
     UploadedFile,

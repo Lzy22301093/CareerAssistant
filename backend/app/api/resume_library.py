@@ -6,15 +6,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
 from app.models.database import get_db
 from app.models.schemas import (
+    ImportGeneratedRequest,
     ResumeDocumentCreate,
     ResumeDocumentDetailOut,
     ResumeDocumentOut,
@@ -26,6 +28,7 @@ from app.models.schemas import (
     SectionAdoptRequest,
     SectionRewriteRequest,
     SessionImportRequest,
+    VersionPagePreferenceRequest,
 )
 from app.services.resume_library_service import ResumeLibraryError, ResumeLibraryService
 from app.services.section_rewrite_service import SectionRewriteError, SectionRewriteService
@@ -213,6 +216,21 @@ async def rollback_version(
     return _serialize_document(doc)
 
 
+@router.post("/versions/{version_id}/page-preference", response_model=ResumeVersionOut)
+async def set_page_preference(
+    version_id: int,
+    data: VersionPagePreferenceRequest,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """更新版本页数偏好（1 页 / 可接受 2 页），写入 render_config.page_preference（阶段3 3-2）。"""
+    try:
+        version = service.set_page_preference(db, user["id"], version_id, data.page_preference)
+    except ResumeLibraryError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _serialize_version(version, current_version_id=version.document.current_version_id if version.document else None)
+
+
 @router.get("/versions/{version_id}/sections", response_model=list[ResumeSectionOut])
 async def list_sections(version_id: int, user: dict = Depends(require_auth), db: Session = Depends(get_db)):
     try:
@@ -288,6 +306,46 @@ async def import_from_session(
     try:
         service.find_session(db, user["id"], data.session_id)
         doc, _version = service.import_from_session(db, user["id"], data.session_id)
+    except ResumeLibraryError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _serialize_document(doc, with_detail=True)
+
+
+@router.post("/import-generated", response_model=ResumeDocumentDetailOut, status_code=201)
+async def import_generated(
+    data: ImportGeneratedRequest,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """把结构化简历内容导入简历库（生成区产物，source=generation）。"""
+    try:
+        doc, _version = service.import_generated(
+            db, user["id"], data.title, data.content, data.page_preference
+        )
+    except ResumeLibraryError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _serialize_document(doc, with_detail=True)
+
+
+@router.post("/import-upload", response_model=ResumeDocumentDetailOut, status_code=201)
+async def import_upload(
+    title: str = Form(..., description="简历名称"),
+    file: UploadFile = File(..., description="简历文件（PDF/DOCX/TXT/MD）"),
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """上传 Word/PDF/TXT/MD 简历 → 解析 → 导入简历库（source=upload）。"""
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="文件不能超过 20MB")
+    try:
+        doc, _version = await service.import_uploaded_file(
+            db,
+            user["id"],
+            title,
+            base64.b64encode(content).decode(),
+            file.filename or "resume.txt",
+        )
     except ResumeLibraryError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _serialize_document(doc, with_detail=True)

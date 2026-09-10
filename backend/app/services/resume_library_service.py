@@ -21,10 +21,11 @@ from app.models.schemas import (
     ResumeVersionCreate,
 )
 
-ALLOWED_SOURCES = {"manual", "session", "upload"}
+ALLOWED_SOURCES = {"manual", "session", "upload", "generation"}
 ALLOWED_SECTION_TYPES = {
     "header",
     "summary",
+    "objective",  # 求职意向（生成区模块）
     "education",
     "experience",
     "project",
@@ -42,6 +43,7 @@ _TITLE_TYPE_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
     (("证书", "资格"), "certification"),
     (("自我评价", "个人总结", "总结", "简介", "概述"), "summary"),
     (("基本信息", "联系方式", "个人信息"), "header"),
+    (("求职意向", "意向", "目标岗位", "目标方向"), "objective"),
 ]
 
 
@@ -74,6 +76,51 @@ def infer_section_type(title: str | None) -> str:
         if any(k in title for k in keywords):
             return section_type
     return "custom"
+
+
+# 上传导入的标题行关键词提示（保守判据，尽量不误判正文行）
+_UPLOAD_HEADING_HINTS = (
+    "教育", "学历", "经历", "项目", "技能", "证书", "自我评价", "个人总结",
+    "基本信息", "求职意向", "荣誉", "获奖", "奖项", "实习", "工作", "简介", "概况",
+    "联系方式", "个人信息", "特长", "语言",
+)
+
+
+def sections_from_text(text: str) -> dict[str, Any]:
+    """把纯文本简历启发式拆成"标题行 + 正文块"的 sections（上传导入用）。
+
+    标题判据：短行（≤30 字符）+ 不以句号/冒号等标点结尾 + 不以列表符号开头 + 不含 |
+    + 行中包含常见板块关键词（教育/经历/技能/证书/自我评价等）。
+    无标题命中时整体作为"正文"单块。
+    """
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    blocks: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for line in lines:
+        is_heading = (
+            len(line) <= 30
+            and not line.endswith(("。", "：", "，", ";", "；", ",", "!", "？"))
+            and not line.startswith(("-", "•", "·", "*"))
+            and "|" not in line
+            and any(k in line for k in _UPLOAD_HEADING_HINTS)
+        )
+        if is_heading:
+            current = {"title": line, "content": []}
+            blocks.append(current)
+        else:
+            if current is None:
+                current = {"title": None, "content": []}
+                blocks.append(current)
+            current["content"].append(line)
+    sections: list[dict[str, Any]] = []
+    for block in blocks:
+        content = "\n".join(block["content"]).strip()
+        if not content:
+            continue
+        sections.append({"title": block["title"] or "正文", "content": content})
+    if not sections:
+        sections = [{"title": "正文", "content": text.strip()}]
+    return {"sections": sections, "raw_text": text}
 
 
 def _sections_from_content(content: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -192,7 +239,10 @@ class ResumeLibraryService:
             user_id=user_id,
             version=(max_version[0] + 1) if max_version else 1,
             content_json=json.dumps(data.content, ensure_ascii=False),
-            render_config_json=json.dumps(data.render_config, ensure_ascii=False) if data.render_config else None,
+            render_config_json=json.dumps(
+                {**(data.render_config or {}), "page_preference": data.page_preference},
+                ensure_ascii=False,
+            ),
         )
         db.add(version)
         db.flush()
@@ -221,6 +271,20 @@ class ResumeLibraryService:
         )
         if version is None:
             raise ResumeLibraryError("简历版本不存在")
+        return version
+
+    def set_page_preference(
+        self, db: DBSession, user_id: int, version_id: int, page_preference: str
+    ) -> ResumeVersion:
+        """更新版本的页数偏好（阶段3 3-2：多页数导出；写入 render_config.page_preference）。"""
+        if page_preference not in {"one_page", "two_pages"}:
+            raise ResumeLibraryError(f"page_preference 非法: {page_preference!r}")
+        version = self.get_version(db, user_id, version_id)
+        rc = parse_json_object(version.render_config_json) or {}
+        rc["page_preference"] = page_preference
+        version.render_config_json = json.dumps(rc, ensure_ascii=False)
+        db.commit()
+        db.refresh(version)
         return version
 
     def rollback_version(self, db: DBSession, user_id: int, doc_id: int, version_id: int) -> ResumeDocument:
@@ -388,6 +452,48 @@ class ResumeLibraryService:
                 render_config=parse_json_object(source_version.render_config_json),
             ),
         )
+        return doc, version
+
+    # ---- 上传 / 生成导入（生成区缺口） ----
+
+    def import_generated(
+        self,
+        db: DBSession,
+        user_id: int,
+        title: str,
+        content: dict[str, Any],
+        page_preference: str = "one_page",
+    ) -> tuple[ResumeDocument, ResumeVersion]:
+        """把结构化简历内容导入简历库（生成区产物，source=generation）。"""
+        doc = self.create_document(db, user_id, ResumeDocumentCreate(title=title, source="generation"))
+        version = self.add_version(
+            db,
+            user_id,
+            doc.id,
+            ResumeVersionCreate(content=content, page_preference=page_preference),
+        )
+        return doc, version
+
+    async def import_uploaded_file(
+        self,
+        db: DBSession,
+        user_id: int,
+        title: str,
+        file_content_b64: str,
+        filename: str,
+    ) -> tuple[ResumeDocument, ResumeVersion]:
+        """上传 Word/PDF/TXT/MD → 解析 → 启发式拆区域 → 导入简历库（source=upload）。"""
+        from app.tools.file_tools import FileParserTool
+
+        result = await FileParserTool().execute(file_content=file_content_b64, filename=filename)
+        if not result.success:
+            raise ResumeLibraryError(f"文件解析失败: {result.error}")
+        text = (result.data.get("text") or "").strip()
+        if not text:
+            raise ResumeLibraryError("文件未提取到有效文本内容")
+        content = sections_from_text(text)
+        doc = self.create_document(db, user_id, ResumeDocumentCreate(title=title, source="upload"))
+        version = self.add_version(db, user_id, doc.id, ResumeVersionCreate(content=content))
         return doc, version
 
     # ---- 会话辅助 ----

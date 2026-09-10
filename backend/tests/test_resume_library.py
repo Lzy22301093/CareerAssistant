@@ -87,6 +87,34 @@ def test_add_version_with_raw_text_only(db_session: Session):
     assert version.sections[0].section_type == "custom"
 
 
+def test_add_version_stores_page_preference(db_session: Session):
+    """阶段3 3-2：页数偏好写入 render_config。"""
+    svc = ResumeLibraryService()
+    doc = _create_doc(svc, db_session)
+    v = svc.add_version(
+        db_session, 1, doc.id,
+        ResumeVersionCreate(content=CONTENT_V1, page_preference="two_pages"),
+    )
+    rc = json.loads(v.render_config_json)
+    assert rc.get("page_preference") == "two_pages"
+    # 默认 one_page
+    v2 = svc.add_version(db_session, 1, doc.id, ResumeVersionCreate(content=CONTENT_V1))
+    rc2 = json.loads(v2.render_config_json)
+    assert rc2.get("page_preference") == "one_page"
+
+
+def test_set_page_preference_updates_render_config(db_session: Session):
+    """阶段3 3-2：PATCH 页数偏好写入 render_config。"""
+    svc = ResumeLibraryService()
+    doc = _create_doc(svc, db_session)
+    v = svc.add_version(db_session, 1, doc.id, ResumeVersionCreate(content=CONTENT_V1))
+    out = svc.set_page_preference(db_session, 1, v.id, "two_pages")
+    rc = json.loads(out.render_config_json)
+    assert rc.get("page_preference") == "two_pages"
+    with pytest.raises(ResumeLibraryError):
+        svc.set_page_preference(db_session, 1, v.id, "three_pages")
+
+
 def test_rollback_is_non_destructive(db_session: Session):
     svc = ResumeLibraryService()
     doc = _create_doc(svc, db_session)

@@ -253,6 +253,50 @@ class StatusChange(BaseModel):
     status: str = Field(..., description="confirmed | suggested | rejected | archived")
 
 
+# === 结构化画像表单（知识库 分阶段向导，阶段3） ===
+
+class ProfileEducationEntry(BaseModel):
+    """一条教育经历（结构化）。"""
+    school: str = ""
+    degree: str = ""
+    major: str = ""
+    courses: str = ""
+    start: str = ""
+    end: str = ""
+    gpa: str = ""
+
+
+class ProfileSocialEntry(BaseModel):
+    """一条社交账号（结构化）。"""
+    platform: str = ""
+    account: str = ""
+
+
+class ProfileExtraEntry(BaseModel):
+    """其他分类的纯文本条目（experience/skill/target/soft/interview_feedback 兜底）。"""
+    category: str = Field(..., description="experience | skill | target | soft | interview_feedback")
+    title: str = ""
+    content: str = ""
+
+
+class ProfileFormSave(BaseModel):
+    """保存知识库分阶段向导（基本信息/教育经历/个人奖项/社交账号）。"""
+    basic_info: dict[str, str] = Field(default_factory=dict, description="固定字段键值；键取自 BASIC_INFO_FIELDS")
+    education: list[ProfileEducationEntry] = Field(default_factory=list)
+    awards: str = Field(default="", description="个人奖项（多行，每行一条）")
+    social: list[ProfileSocialEntry] = Field(default_factory=list)
+    extra: list[ProfileExtraEntry] = Field(default_factory=list, description="其他分类兜底")
+
+
+class ProfileFormOut(BaseModel):
+    """知识库分阶段向导的已保存数据（供前端回显/继续编辑）。"""
+    basic_info: dict[str, str] = Field(default_factory=dict)
+    education: list[ProfileEducationEntry] = Field(default_factory=list)
+    awards: list[str] = Field(default_factory=list)
+    social: list[ProfileSocialEntry] = Field(default_factory=list)
+    extra: list[ProfileExtraEntry] = Field(default_factory=list)
+
+
 # === 画像更新提案（阶段1 指令1-2） ===
 
 class ProfileUpdateProposalOut(BaseModel):
@@ -293,6 +337,12 @@ class ResumeVersionCreate(BaseModel):
     """为文档新增一版简历内容。"""
     content: dict = Field(..., description='简历内容 {"sections": [{"title","content"}], "raw_text": str}')
     render_config: dict | None = None
+    page_preference: str = Field(default="one_page", description="one_page | two_pages（页数偏好，阶段3 3-2）")
+
+
+class VersionPagePreferenceRequest(BaseModel):
+    """更新简历版本页数偏好（阶段3 3-2 多页数导出）。"""
+    page_preference: str = Field(..., description="one_page | two_pages")
 
 
 class ResumeSectionUpdate(BaseModel):
@@ -417,3 +467,158 @@ class MatchTaskOut(BaseModel):
 class MatchRunRequest(BaseModel):
     """执行匹配分析。"""
     with_draft: bool = Field(default=True, description="是否生成定向简历草稿")
+
+
+# === 简历生成区（8 步向导后端） ===
+
+class ResumeDraftSave(BaseModel):
+    """保存生成向导草稿（暂存退出）。"""
+    step: int = Field(ge=1, le=8, description="当前步骤 01-08")
+    data: dict = Field(default_factory=dict, description="向导数据快照")
+
+
+class ResumeDraftOut(BaseModel):
+    """生成向导草稿输出。"""
+    step: int | None = None
+    data: dict = Field(default_factory=dict)
+    updated_at: datetime | None = None
+
+
+class WizardExperienceCreate(BaseModel):
+    """向导单条经历（03 经历补充）。"""
+    exp_type: str = Field(default="项目", description="项目 | 实习 | 竞赛 | 课程 | 校园")
+    company: str | None = None      # 公司/项目/机构
+    title: str | None = None        # 角色/名称
+    duration: str | None = None
+    duty: str | None = None         # 职责（做了什么）
+    achievement: str | None = None  # 成果/收获
+
+
+class StarResultItem(BaseModel):
+    """单条经历的 STAR 结构化结果（04 STAR 结构化）。"""
+    exp_type: str = "项目"
+    company: str | None = None
+    title: str | None = None
+    situation: str = ""
+    task: str = ""
+    action: str = ""
+    result: str = ""
+
+
+class StarBatch(BaseModel):
+    """LLM 结构化输出：多条经历的 STAR 结果。"""
+    items: list[StarResultItem] = Field(default_factory=list)
+
+
+class StarRequest(BaseModel):
+    """STAR 结构化请求。"""
+    experiences: list[WizardExperienceCreate] = Field(default_factory=list)
+
+
+class StarResponse(BaseModel):
+    """STAR 结构化响应。"""
+    items: list[StarResultItem] = Field(default_factory=list)
+
+
+class WizardGenerateRequest(BaseModel):
+    """08 生成与导出：从向导数据组装简历。"""
+    title: str = Field(default="我的新简历", max_length=200, description="生成简历的标题")
+    basic_info: dict = Field(default_factory=dict, description="01 基础信息 {name,email,phone,location,...}")
+    directions: list[str] = Field(default_factory=list, description="02 选中的方向（1-3）")
+    experiences: list[StarResultItem] = Field(default_factory=list, description="03/04 经历（已 STAR 化）")
+    soft_info: dict = Field(default_factory=dict, description="05 {personality,vision,disinterested,self_eval}")
+    photo_id: int | None = Field(default=None, description="06 证件照（resume_photos.id）")
+    module_order: list[str] = Field(default_factory=list, description="07 模块标题顺序（缺省用默认顺序）")
+    page_preference: str = Field(default="one_page", description="one_page | two_pages")
+    polish: bool = Field(default=True, description="是否 AI 润色")
+    import_to_library: bool = Field(default=True, description="生成后是否直接导入简历库")
+
+
+class ImportGeneratedRequest(BaseModel):
+    """把结构化简历内容导入简历库（生成区产物 / 外部内容）。"""
+    title: str = Field(..., max_length=200)
+    content: dict = Field(..., description='ResumeContent {"sections":[{"title","content"}],"raw_text":str}')
+    page_preference: str = Field(default="one_page", description="one_page | two_pages")
+
+
+class ResumeExportRequest(BaseModel):
+    """导出简历（生成区/库内版本内容）。"""
+    title: str = Field(default="我的简历", max_length=200, description="导出文件名（不含扩展名）")
+    content: dict = Field(..., description='ResumeContent {"sections":[{"title","content"}],"raw_text":str}')
+    format: str = Field(default="docx", description="docx | html | md | json")
+
+
+class PhotoOut(BaseModel):
+    """证件照输出。"""
+    id: int
+    filename: str
+    url: str
+    created_at: datetime
+
+
+# === 投递记录（阶段3 指令3-3） ===
+
+class JobApplicationCreate(BaseModel):
+    """新增投递记录。"""
+    company: str = Field(..., min_length=1, max_length=100, description="公司")
+    job_title: str = Field(..., min_length=1, max_length=100, description="岗位")
+    status: str = Field(default="applied", description="applied | written_test | interview | offer | rejected")
+    notes: str | None = None
+    applied_at: datetime | None = Field(default=None, description="投递时间，缺省用当前时间")
+
+
+class JobApplicationUpdate(BaseModel):
+    """更新投递记录（部分字段）。"""
+    company: str | None = Field(default=None, max_length=100)
+    job_title: str | None = Field(default=None, max_length=100)
+    status: str | None = None
+    notes: str | None = None
+
+
+class JobApplicationOut(BaseModel):
+    """投递记录输出。"""
+    id: int
+    company: str | None = None
+    job_title: str | None = None
+    status: str
+    result: str  # ongoing | passed | failed（由 status 推导）
+    notes: str | None = None
+    applied_at: datetime
+    created_at: datetime
+
+
+# === 画像方向推荐（阶段3 指令3-1） ===
+
+class DirectionCandidate(BaseModel):
+    """单个岗位方向候选（LLM 结构化输出 + API 请求/响应复用）。"""
+    title: str = Field(..., description="岗位方向名称，如：后端开发工程师")
+    reason: str = Field(..., description="推荐理由（为何适合该方向）")
+    detail: str = Field(default="", description="方向详情/匹配点说明（对应参考图「查看详情」）")
+
+
+class DirectionRecommendation(BaseModel):
+    """画像方向推荐结果（LLM 结构化输出）。"""
+    directions: list[DirectionCandidate] = Field(..., description="候选方向列表（3~8 条）")
+
+
+class DirectionConfirmRequest(BaseModel):
+    """保存用户选中的方向（1~3 个）。"""
+    selected: list[DirectionCandidate] = Field(..., description="选中的方向候选（最多 3 个）")
+
+
+# === 软性信息（阶段3 指令3-2） ===
+
+class SoftInfoSuggestion(BaseModel):
+    """软性信息建议（LLM 结构化输出 + AI 生成）。"""
+    personality: str = Field(default="", description="性格特点")
+    vision: str = Field(default="", description="职业愿景")
+    disinterested: str = Field(default="", description="不感兴趣的方向")
+    self_eval: str = Field(default="", description="自我评价")
+
+
+class SoftInfoSaveRequest(BaseModel):
+    """保存软性信息为画像条目。"""
+    personality: str = Field(default="", description="性格特点")
+    vision: str = Field(default="", description="职业愿景")
+    disinterested: str = Field(default="", description="不感兴趣的方向")
+    self_eval: str = Field(default="", description="自我评价")

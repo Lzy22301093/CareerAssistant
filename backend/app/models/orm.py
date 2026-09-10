@@ -266,7 +266,7 @@ class ProfileItem(Base):
     """画像条目 —— 个人知识库的细分条目（事实/建议/反馈）。
 
     status: confirmed | suggested | rejected | archived
-    category: basic_info | education | experience | skill | target | soft | interview_feedback
+    category: basic_info | education | experience | skill | target | soft | interview_feedback | award | social
     item_type: fact | suggestion | feedback
     visibility: resume | interview | resume_interview | private
     """
@@ -387,3 +387,39 @@ class ProfileUpdateProposal(Base):
 
     def __repr__(self) -> str:
         return f"<ProfileUpdateProposal(user_id={self.user_id}, change_type={self.change_type!r}, status={self.status!r})>"
+
+
+class ResumeDraft(Base):
+    """简历生成向导草稿（生成区缺口：暂存退出）。
+
+    每个用户一份（user_id 唯一），保存 8 步向导的当前步骤与数据快照。
+    """
+    __tablename__ = "resume_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 01-08
+    data_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 向导数据快照
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ResumeDraft(user_id={self.user_id}, step={self.step})>"
+
+
+class ResumePhoto(Base):
+    """简历证件照资产（生成区缺口：06 证件照）。
+
+    每个用户当前一张（user_id 唯一，重传覆盖），供生成简历的渲染/导出引用。
+    """
+    __tablename__ = "resume_photos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(200), default="photo.jpg", nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(50), default="image/jpeg", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ResumePhoto(user_id={self.user_id}, file={self.filename!r})>"

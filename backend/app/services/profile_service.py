@@ -12,11 +12,15 @@ from sqlalchemy.orm import Session as DBSession
 from app.models.orm import ProfileEvidence, ProfileItem
 from app.models.schemas import EvidenceCreate, ProfileItemCreate, ProfileItemUpdate
 
-ALLOWED_CATEGORIES = {"basic_info", "education", "experience", "skill", "target", "soft", "interview_feedback"}
+ALLOWED_CATEGORIES = {
+    "basic_info", "education", "experience", "skill", "target", "soft",
+    "interview_feedback", "award", "social",
+}
 ALLOWED_STATUS = {"confirmed", "suggested", "rejected", "archived"}
 ALLOWED_VISIBILITY = {"resume", "interview", "resume_interview", "private"}
 ALLOWED_ITEM_TYPES = {"fact", "suggestion", "feedback"}
 ALLOWED_SOURCE_TYPES = {"user_input", "resume", "interview_report"}
+SOURCE_TYPE_USER_INPUT = "user_input"
 
 
 def aggregate_confirmed_profile(items: list[ProfileItem]) -> dict[str, Any]:
@@ -54,6 +58,12 @@ def aggregate_confirmed_profile(items: list[ProfileItem]) -> dict[str, Any]:
             ctx.setdefault("education", []).append(f"{item.title}: {content}".strip() if content else item.title)
         elif item.category == "target":
             ctx.setdefault("target_roles", []).append(item.content or item.title)
+        elif item.category == "award":
+            ctx.setdefault("certifications", []).append(
+                f"{item.title}: {content}".strip() if content else item.title
+            )
+        elif item.category == "social":
+            ctx.setdefault("social", []).append(f"{item.title}: {content}".strip() if content else item.title)
         elif item.category == "interview_feedback":
             ctx.setdefault("gaps", []).append(f"{item.title}: {content}".strip() if content else item.title)
     return ctx
@@ -151,6 +161,46 @@ class ProfileService:
         item = self.get_item(db, user_id, item_id)
         db.delete(item)
         db.commit()
+
+    def upsert_item(self, db: DBSession, user_id: int, data: ProfileItemCreate) -> tuple[ProfileItem, bool]:
+        """按 (category, title) 幂等写入一条 confirmed 画像条目。
+
+        存在则更新 content/status/visibility，返回 (item, False)；不存在则新建，
+        返回 (item, True)。供"结构化画像向导"重复保存时保持一致（不产生重复条目）。
+        """
+        _ensure(data.category, ALLOWED_CATEGORIES, "category")
+        _ensure(data.status, ALLOWED_STATUS, "status")
+        _ensure(data.visibility, ALLOWED_VISIBILITY, "visibility")
+        _ensure(data.item_type, ALLOWED_ITEM_TYPES, "item_type")
+        existing = (
+            db.query(ProfileItem)
+            .filter(
+                ProfileItem.user_id == user_id,
+                ProfileItem.category == data.category,
+                ProfileItem.title == data.title,
+            )
+            .order_by(ProfileItem.id.asc())
+            .first()
+        )
+        if existing is not None:
+            existing.content = data.content
+            existing.item_type = data.item_type
+            existing.status = data.status
+            existing.visibility = data.visibility
+            existing.confidence = data.confidence
+            db.commit()
+            db.refresh(existing)
+            return existing, False
+        item = self.create_item(db, user_id, data)
+        return item, True
+
+    def list_by_category(self, db: DBSession, user_id: int, category: str) -> list[ProfileItem]:
+        return (
+            db.query(ProfileItem)
+            .filter(ProfileItem.user_id == user_id, ProfileItem.category == category)
+            .order_by(ProfileItem.sort_order.asc(), ProfileItem.id.asc())
+            .all()
+        )
 
     def add_evidence(self, db: DBSession, user_id: int, item_id: int, data: EvidenceCreate) -> ProfileEvidence:
         _ensure(data.source_type, ALLOWED_SOURCE_TYPES, "source_type")
