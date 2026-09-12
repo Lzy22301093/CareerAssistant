@@ -21,6 +21,7 @@ class ClientMsgType(str, Enum):
     TEXT = "text"
     PING = "ping"
     START = "start"         # 启动面试（携带 jd_analysis + profile）
+    RESUME = "resume"       # 断线重连恢复已有面试（携带 interview_id，不重放开场）
 
 
 @dataclass
@@ -32,6 +33,11 @@ class ClientMsg:
     profile: dict[str, Any] = field(default_factory=dict)       # start: 个人画像
     referenced_questions: list[str] = field(default_factory=list)  # start: 参考面试题
     max_turns: int = 10     # start: 最大轮数
+    interview_id: str = ""  # resume: 恢复的面试 ID
+    user_id: int | None = None  # start: 用户 ID（报告归属）
+    voice: str = ""         # start: TTS 音色
+    speed: float | None = None  # start: TTS 语速 0.7-1.6
+    tts_style: str = ""     # start: professional | casual | concise
 
 
 # ── 服务端 → 客户端 ──────────────────────────────────────
@@ -56,6 +62,7 @@ class ServerMsg:
     content: str = ""
     report: dict[str, Any] | None = None
     message: str = ""
+    interview_id: str = ""
 
 
 def parse_client_msg(raw: str) -> ClientMsg | None:
@@ -83,6 +90,11 @@ def parse_client_msg(raw: str) -> ClientMsg | None:
         profile=obj.get("profile", {}),
         referenced_questions=obj.get("referenced_questions", []),
         max_turns=obj.get("max_turns", 10),
+        interview_id=obj.get("interview_id", "") or "",
+        user_id=obj.get("user_id"),
+        voice=obj.get("voice") or "",
+        speed=obj.get("speed"),
+        tts_style=obj.get("tts_style") or obj.get("style") or "",
     )
 
 
@@ -98,4 +110,6 @@ def encode_server_msg(msg: ServerMsg) -> str:
         payload["report"] = msg.report
     if msg.message:
         payload["message"] = msg.message
+    if msg.interview_id:
+        payload["interview_id"] = msg.interview_id
     return json.dumps(payload, ensure_ascii=False)

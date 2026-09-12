@@ -109,6 +109,10 @@ class SectionRewriteService:
             user_instruction=instruction,
             conversation_history=_clean_history(conversation_history),
         )
+        if isinstance(raw, dict) and raw.get("_parse_error"):
+            raise SectionRewriteError(
+                "改写模型输出无法解析为结构化结果，请稍后重试或简化指令"
+            ) from None
         try:
             output = SectionRewriteOutput.model_validate(raw)
         except ValidationError as e:

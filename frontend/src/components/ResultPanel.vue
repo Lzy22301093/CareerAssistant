@@ -273,43 +273,16 @@
         </div>
       </el-tab-pane>
 
-      <!-- AI 模拟面试 Tab -->
+      <!-- AI 模拟面试 Tab（文字版；语音版在主页「模拟面试」独立页） -->
       <el-tab-pane label="AI 模拟面试" name="voice-chat">
         <div class="tab-content voice-chat-tab">
-          <div v-if="session.voiceChatActive" class="voice-chat-active">
-            <VoiceInterviewPanel
-              :ws-url="session.voiceChatWsUrl"
-              mode="chat"
-              @end="onVoiceChatEnd"
-            />
+          <div class="voice-link-row">
+            <el-button type="primary" plain @click="goVoiceInterview">
+              去语音模拟面试
+            </el-button>
+            <span class="voice-link-hint">完整语音多轮 + 反馈报告，在独立页进行</span>
           </div>
-          <div v-else class="voice-chat-start">
-            <div class="voice-chat-info">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8" y1="23" x2="16" y2="23"/>
-              </svg>
-              <h3>AI 模拟面试</h3>
-              <p>基于 JD 分析和个人画像，进行一场逼真的语音模拟面试</p>
-              <el-button
-                type="primary"
-                size="large"
-                :disabled="!canStartVoiceChat"
-                @click="startVoiceChat"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                </svg>
-                开始语音面试
-              </el-button>
-              <p v-if="!canStartVoiceChat" class="voice-chat-hint">
-                请先完成 JD 分析后再开始模拟面试
-              </p>
-            </div>
-          </div>
+          <TextInterviewPanel />
         </div>
       </el-tab-pane>
 
@@ -360,43 +333,21 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ChevronDown } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import { exportResume } from '../api/sessions'
 import SkeletonLoader from './SkeletonLoader.vue'
-import VoiceInterviewPanel from './VoiceInterviewPanel.vue'
+import TextInterviewPanel from './TextInterviewPanel.vue'
 import ScreenState from './ScreenState.vue'
 
 const session = useSessionStore()
 const exporting = ref(false)
+const router = useRouter()
 
-// Voice Chat
-const canStartVoiceChat = computed(() => {
-  return !!session.jdAnalysis && !!session.sessionId
-})
-
-async function startVoiceChat() {
-  if (!session.sessionId) return
-  try {
-    const res = await fetch(`/api/sessions/${session.sessionId}/voice-chat`, { method: 'POST' })
-    if (!res.ok) {
-      const data = await res.json()
-      ElMessage.error(data.detail || '启动失败')
-      return
-    }
-    const data = await res.json()
-    session.voiceChatActive = true
-    session.voiceChatWsUrl = data.ws_url
-    ElMessage.success('语音面试已启动')
-  } catch (e) {
-    ElMessage.error('启动语音面试失败')
-  }
-}
-
-function onVoiceChatEnd() {
-  session.voiceChatActive = false
-  session.voiceChatWsUrl = ''
+function goVoiceInterview() {
+  router.push('/mock-interview')
 }
 
 const formattedResumeJson = computed(() => {
@@ -849,6 +800,26 @@ function renderMarkdown(text: string): string {
 }
 
 /* ── AI 模拟面试 Tab ── */
+
+.voice-chat-tab {
+  padding-top: var(--space-2);
+}
+
+.voice-link-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.voice-link-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.voice-chat-hint {
+  display: none;
+}
 .voice-chat-tab {
   height: 100%;
   display: flex;

@@ -51,8 +51,6 @@ import {
   Library,
   FileText,
   User,
-  Compass,
-  Heart,
   Megaphone,
   MessagesSquare,
   Code2,
@@ -67,11 +65,9 @@ const auth = useAuthStore()
 
 const modules = [
   { label: '功能墙', route: '/', icon: Library },
-  { label: '简历工作台', route: '/resume-library', icon: FileText },
   { label: '简历生成', route: '/resume-generation', icon: Sparkles },
-  { label: '个人知识库', route: '/knowledge-base', icon: User },
-  { label: '投递方向', route: '/job-directions', icon: Compass },
-  { label: '软性信息', route: '/soft-info', icon: Heart },
+  { label: '简历工作台', route: '/resume-library', icon: FileText },
+  { label: '个人画像', route: '/knowledge-base', icon: User },
   { label: '投递记录', route: '/applications', icon: Megaphone },
   { label: '模拟面试', route: '/mock-interview', icon: MessagesSquare },
   { label: 'AI 助手', route: '/workspace', icon: Code2 },
@@ -91,7 +87,7 @@ function handleCommand(cmd: string) {
 .app-nav {
   position: relative;
   z-index: 20;
-  height: 56px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -128,7 +124,7 @@ function handleCommand(cmd: string) {
 }
 .brand-name {
   font-family: var(--font-display);
-  font-size: var(--text-base);
+  font-size: var(--text-md);
   font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
 }
@@ -148,9 +144,9 @@ function handleCommand(cmd: string) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 11px;
+  padding: 8px 12px;
   border-radius: var(--radius-full);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--weight-medium);
   color: var(--color-text-secondary);
   text-decoration: none;

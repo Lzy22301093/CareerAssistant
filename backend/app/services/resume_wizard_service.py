@@ -21,6 +21,9 @@ from sqlalchemy.orm import Session as DBSession
 from app.config import settings
 from app.models.orm import ResumeDraft, ResumePhoto
 from app.models.schemas import (
+    ExperienceDraftItem,
+    ExperienceGenerateRequest,
+    ExperienceStructureRequest,
     ResumeContent,
     ResumeDraftSave,
     StarBatch,
@@ -56,15 +59,48 @@ STAR_SYSTEM_PROMPT = (
 )
 
 POLISH_SYSTEM_PROMPT = (
-    "你是专业中文简历润色助手。请润色以下简历内容：统一语感、使表达更专业有力、"
-    "在不改变事实的前提下改善措辞与量化表达。\n"
-    "保持 sections 结构与标题不变，输出 JSON："
-    '{"sections":[{"title":"...","content":"..."}],"raw_text":"完整纯文本"}'
+    "你是专业中文简历润色助手。请润色给定模块正文：统一语感、表达更专业有力、"
+    "在不改变事实与条目数量的前提下改善措辞。\n"
+    "禁止使用 Markdown 语法（不要 #、**、- 列表符号），保持纯文本与原有换行结构。\n"
+    "只输出 JSON：{\"content\":\"润色后的纯文本\"}，不要输出标题，不要增删模块。"
+)
+
+EXPERIENCE_FIELDS_DOC = (
+    "每条经历字段：exp_type（项目|实习|竞赛|课程|校园）、company（公司/项目/机构）、"
+    "title（角色）、duration（时间，如 2024.06-2024.09）、duty（职责，做了什么，专业润色）、"
+    "achievement（成果/收获，尽量量化或写实）。"
+)
+
+STRUCTURE_SYSTEM_PROMPT = (
+    "你是简历经历结构化与润色专家。用户会用自然语言粗略描述一段或多段实践经历。\n"
+    "请：1）拆成 1~5 条独立经历；2）填全字段并优化措辞（duty/achievement 更专业有力，不捏造事实）；"
+    "3）时间若原文有则保留，没有则留空。\n"
+    + EXPERIENCE_FIELDS_DOC
+    + "\n只输出 JSON：{\"items\":[{...}]}，不要任何额外文字。"
+)
+
+GENERATE_SYSTEM_PROMPT = (
+    "你是简历经历包装专家。用户可能没有完整经历素材，请结合画像与投递方向，"
+    "生成真实可写、便于继续完善的实践经历草稿（校园/项目/竞赛/课程/实习均可）。\n"
+    "要求：基于画像中已有事实外推合理情节，不虚构不存在的公司名或奖项级别；"
+    "duty/achievement 写得具体、可量化优先。\n"
+    + EXPERIENCE_FIELDS_DOC
+    + "\n只输出 JSON：{\"items\":[{...}]}，不要任何额外文字。"
 )
 
 
 class WizardError(ValueError):
     """生成区业务错误。"""
+
+
+def _experience_batch_schema() -> type:
+    """延迟构造经历批量输出 schema，避免循环导入。"""
+    from pydantic import BaseModel, Field
+
+    class ExperienceBatch(BaseModel):
+        items: list[ExperienceDraftItem] = Field(default_factory=list)
+
+    return ExperienceBatch
 
 
 class ResumeWizardService:
@@ -106,6 +142,121 @@ class ResumeWizardService:
             db.delete(draft)
             db.commit()
 
+    # ---- 03 经历补充：自然语言结构化 / AI 生成 ----
+
+    async def structure_experiences(
+        self,
+        db: DBSession,
+        user_id: int,
+        req: ExperienceStructureRequest,
+        llm: Any,
+    ) -> list[ExperienceDraftItem]:
+        """把自然语言粗略描述结构化并润色为经历列表。"""
+        text = (req.text or "").strip()
+        if not text:
+            raise WizardError("请先填写一段经历描述")
+
+        from app.llm.structured import ainvoke_json_with_schema
+
+        direction_line = "投递方向：" + "、".join(req.directions) if req.directions else ""
+        profile_brief = self._profile_brief(db, user_id)
+        user_content = (
+            (f"候选人画像摘要：\n{profile_brief}\n\n" if profile_brief else "")
+            + (direction_line + "\n\n" if direction_line else "")
+            + "用户粗略描述：\n"
+            + text
+        )
+        result = await ainvoke_json_with_schema(
+            llm,
+            system_prompt=STRUCTURE_SYSTEM_PROMPT,
+            user_content=user_content,
+            schema=_experience_batch_schema(),
+            max_attempts=2,
+            temperature=0.3,
+            max_tokens=2048,
+        )
+        items = self._normalize_experience_items(result.items)
+        if not items:
+            raise WizardError("未能从描述中结构化出有效经历，请补充细节后重试")
+        return items
+
+    async def generate_experiences(
+        self,
+        db: DBSession,
+        user_id: int,
+        req: ExperienceGenerateRequest,
+        llm: Any,
+    ) -> list[ExperienceDraftItem]:
+        """无经历时，按画像与方向生成经历草稿。"""
+        from app.llm.structured import ainvoke_json_with_schema
+
+        profile_brief = self._profile_brief(db, user_id)
+        direction_line = "投递方向：" + "、".join(req.directions) if req.directions else ""
+        user_content = (
+            (f"候选人画像摘要：\n{profile_brief}\n\n" if profile_brief else "候选人画像摘要：（空）\n\n")
+            + (direction_line + "\n" if direction_line else "")
+            + f"请生成 {req.count} 条实践经历草稿。"
+        )
+        result = await ainvoke_json_with_schema(
+            llm,
+            system_prompt=GENERATE_SYSTEM_PROMPT,
+            user_content=user_content,
+            schema=_experience_batch_schema(),
+            max_attempts=2,
+            temperature=0.5,
+            max_tokens=2048,
+        )
+        items = self._normalize_experience_items(result.items)[: req.count]
+        if not items:
+            raise WizardError("AI 未生成有效经历，请完善知识库画像后重试")
+        return items
+
+    def _profile_brief(self, db: DBSession, user_id: int) -> str:
+        """压缩画像为 brief 文本，供经历包装/生成使用。"""
+        from app.services.profile_service import build_profile_context
+
+        ctx = build_profile_context(db, user_id)
+        if not ctx:
+            return ""
+        parts: list[str] = []
+        for key in ("name", "summary", "skills", "experience", "education", "target_roles", "certifications"):
+            val = ctx.get(key)
+            if not val:
+                continue
+            if isinstance(val, list):
+                text_items = []
+                for x in val:
+                    if isinstance(x, dict):
+                        text_items.append(f"{x.get('title', '')}: {x.get('content', '')}".strip(": "))
+                    else:
+                        text_items.append(str(x))
+                parts.append(f"{key}: {'；'.join(text_items[:12])}")
+            else:
+                parts.append(f"{key}: {val}")
+        return "\n".join(parts)
+
+    def _normalize_experience_items(self, items: list[Any]) -> list[ExperienceDraftItem]:
+        out: list[ExperienceDraftItem] = []
+        for raw in items or []:
+            exp_type = (getattr(raw, "exp_type", None) or "项目").strip() or "项目"
+            if exp_type not in {"项目", "实习", "竞赛", "课程", "校园"}:
+                exp_type = "项目"
+            out.append(
+                ExperienceDraftItem(
+                    exp_type=exp_type,
+                    company=(getattr(raw, "company", None) or "").strip(),
+                    title=(getattr(raw, "title", None) or "").strip(),
+                    duration=(getattr(raw, "duration", None) or "").strip(),
+                    duty=(getattr(raw, "duty", None) or "").strip(),
+                    achievement=(getattr(raw, "achievement", None) or "").strip(),
+                    situation=(getattr(raw, "situation", None) or "").strip(),
+                    task=(getattr(raw, "task", None) or "").strip(),
+                    action=(getattr(raw, "action", None) or "").strip(),
+                    result=(getattr(raw, "result", None) or "").strip(),
+                )
+            )
+        return out
+
     # ---- 03/04 STAR 结构化 ----
 
     async def star_structuring(
@@ -146,22 +297,39 @@ class ResumeWizardService:
                 exp_type=item.exp_type or "项目",
                 company=item.company,
                 title=item.title,
+                duration=getattr(item, "duration", None),
                 situation=(item.situation or "").strip(),
                 task=(item.task or "").strip(),
                 action=(item.action or "").strip(),
                 result=(item.result or "").strip(),
+                duty=getattr(item, "duty", None),
+                achievement=getattr(item, "achievement", None),
             )
             if not any([star.situation, star.task, star.action, star.result]):
                 original = by_key.get((star.exp_type, star.company, star.title))
                 if original:
                     star.action = original.duty or ""
                     star.result = original.achievement or ""
+                    star.duration = star.duration or original.duration
             items.append(star)
         if not items:
             raise WizardError("经历未生成有效的 STAR 结构化结果，请重试")
         return items
 
     # ---- 08 生成与导出 ----
+
+    @staticmethod
+    def default_resume_title(name: str | None, directions: list[str] | None) -> str:
+        """默认标题：{姓名}·{主方向}简历。"""
+        name = (name or "").strip()
+        primary = (directions[0].strip() if directions else "") or ""
+        if name and primary:
+            return f"{name}·{primary}简历"
+        if name:
+            return f"{name}的简历"
+        if primary:
+            return f"{primary}简历"
+        return "个人简历"
 
     async def generate_resume(
         self,
@@ -175,6 +343,15 @@ class ResumeWizardService:
         Returns:
             (content, document, version) —— content 为 ResumeContent 形态字典。
         """
+        # 标题：空/默认占位时用「姓名·方向简历」
+        title = (req.title or "").strip()
+        if not title or title in {"我的新简历", "我的简历", "简历"}:
+            title = self.default_resume_title(
+                (req.basic_info or {}).get("name"),
+                req.directions,
+            )
+            req = req.model_copy(update={"title": title})
+
         content = self._assemble_content(req)
         if req.polish:
             try:
@@ -243,12 +420,24 @@ class ResumeWizardService:
     # ---- 内部：组装 / 润色 / 导入 ----
 
     @staticmethod
+    def _merge_self_eval(soft: dict[str, Any]) -> str:
+        """软性信息只并入自我评价，简历上不出现独立「软性信息」模块。"""
+        parts: list[str] = []
+        for key in ("self_eval", "personality", "vision"):
+            val = (soft.get(key) or "").strip() if isinstance(soft.get(key), str) else ""
+            if val and val not in parts:
+                parts.append(val)
+        # 不感兴趣方向不进简历正文
+        return "\n".join(parts)
+
+    @staticmethod
     def _assemble_content(req: WizardGenerateRequest) -> dict[str, Any]:
+        """把向导数据组装成完整简历 sections（纯文本，无 Markdown）。"""
         basic = req.basic_info or {}
         soft = req.soft_info or {}
         sections: list[dict[str, str]] = []
 
-        # 01 基础信息 → 基本信息
+        # 01 基础信息
         info_lines: list[str] = []
         for key, label in (
             ("name", "姓名"), ("email", "邮箱"), ("phone", "电话"),
@@ -268,13 +457,16 @@ class ResumeWizardService:
         edu = basic.get("education")
         if edu:
             edu_text = "\n".join(str(e) for e in edu) if isinstance(edu, list) else str(edu)
-            sections.append({"title": "教育背景", "content": edu_text.strip()})
+            if edu_text.strip():
+                sections.append({"title": "教育背景", "content": edu_text.strip()})
 
-        # 03/04 经历 → 实习/工作经历 + 项目经历
+        # 03/04 经历 → 实习/工作 + 项目（含时间/职责/成果/STAR，纯文本）
         work_blocks: list[str] = []
         project_blocks: list[str] = []
         for exp in req.experiences:
             block = ResumeWizardService._format_experience(exp)
+            if not block.strip():
+                continue
             if exp.exp_type in ("实习", "工作", "职场"):
                 work_blocks.append(block)
             else:
@@ -284,22 +476,26 @@ class ResumeWizardService:
         if project_blocks:
             sections.append({"title": "项目经历", "content": "\n\n".join(project_blocks)})
 
-        # 05 软性信息 → 技能 + 自我评价
+        # 技能
         skills = soft.get("skills") or basic.get("skills") or []
         if skills:
-            skill_text = ", ".join(str(s) for s in skills) if isinstance(skills, list) else str(skills)
-            sections.append({"title": "技能", "content": skill_text.strip()})
-        self_eval = soft.get("self_eval")
+            skill_text = "、".join(str(s).strip() for s in skills if str(s).strip()) if isinstance(skills, list) else str(skills)
+            if skill_text.strip():
+                sections.append({"title": "技能", "content": skill_text.strip()})
+
+        # 自我评价（软性信息合并，无独立软性信息模块）
+        self_eval = ResumeWizardService._merge_self_eval(soft)
         if self_eval:
-            sections.append({"title": "自我评价", "content": str(self_eval).strip()})
+            sections.append({"title": "自我评价", "content": self_eval})
 
         # 证书/荣誉
         certs = basic.get("certifications")
         if certs:
-            cert_text = "\n".join(str(c) for c in certs) if isinstance(certs, list) else str(certs)
-            sections.append({"title": "证书/荣誉", "content": cert_text.strip()})
+            cert_text = "\n".join(str(c) for c in certs if str(c).strip()) if isinstance(certs, list) else str(certs)
+            if cert_text.strip():
+                sections.append({"title": "证书/荣誉", "content": cert_text.strip()})
 
-        # 07 模块顺序重排（未知标题按默认位置兜底）
+        # 07 模块顺序（仅排序，不丢模块）
         order = [t for t in (req.module_order or DEFAULT_MODULE_ORDER) if t]
         if order:
             sections.sort(
@@ -309,33 +505,74 @@ class ResumeWizardService:
                 )
             )
 
-        raw_text = "\n\n".join(f"## {s['title']}\n{s['content']}" for s in sections)
+        raw_text = "\n\n".join(f"{s['title']}\n{s['content']}" for s in sections)
         return {"sections": sections, "raw_text": raw_text}
 
     @staticmethod
     def _format_experience(exp: StarResultItem) -> str:
-        parts = ["### " + " | ".join([x for x in (exp.company, exp.title) if x]).strip(" |")]
-        for label, value in (("情境", exp.situation), ("任务", exp.task), ("行动", exp.action), ("结果", exp.result)):
-            if value:
-                parts.append(f"- {label}：{value}")
-        return "\n".join(parts)
+        """经历块：纯文本，无 Markdown。"""
+        header = " | ".join(
+            x for x in (exp.company, exp.title, exp.duration) if x and str(x).strip()
+        )
+        lines: list[str] = []
+        if header:
+            lines.append(header)
+        duty = (exp.duty or "").strip()
+        if not duty:
+            # STAR 后 action 常承载职责描述
+            duty = (exp.action or "").strip()
+        if duty:
+            lines.append(f"职责：{duty}")
+        for label, value in (
+            ("情境", exp.situation),
+            ("任务", exp.task),
+            ("行动", exp.action),
+            ("成果", exp.result or exp.achievement),
+        ):
+            value = (value or "").strip()
+            if not value:
+                continue
+            if label in ("行动", "任务") and duty and value == duty:
+                continue
+            lines.append(f"{label}：{value}")
+        if len(lines) == 1 and (exp.achievement or "").strip():
+            lines.append(f"成果：{(exp.achievement or '').strip()}")
+        return "\n".join(lines).strip()
 
     async def _polish_content(self, content: dict[str, Any], llm: Any) -> dict[str, Any]:
+        """逐模块润色正文：模块数、标题、顺序与原组装结果完全一致。"""
         from app.llm.structured import ainvoke_json_with_schema
+        from pydantic import BaseModel, Field
 
-        result = await ainvoke_json_with_schema(
-            llm,
-            system_prompt=POLISH_SYSTEM_PROMPT,
-            user_content=json.dumps(content, ensure_ascii=False),
-            schema=ResumeContent,
-            max_attempts=2,
-            temperature=0.5,
-            max_tokens=3072,
-        )
-        return {
-            "sections": [{"title": s.title, "content": s.content} for s in result.sections],
-            "raw_text": result.raw_text,
-        }
+        class PolishOne(BaseModel):
+            content: str = Field(default="")
+
+        polished_sections: list[dict[str, str]] = []
+        for sec in content.get("sections") or []:
+            title = str(sec.get("title") or "").strip()
+            body = str(sec.get("content") or "")
+            if not body.strip() or title == "基本信息":
+                # 基本信息为结构化字段，不交给 LLM 改写
+                polished_sections.append({"title": title, "content": body})
+                continue
+            try:
+                result = await ainvoke_json_with_schema(
+                    llm,
+                    system_prompt=POLISH_SYSTEM_PROMPT,
+                    user_content=f"模块标题：{title}\n原始正文：\n{body}",
+                    schema=PolishOne,
+                    max_attempts=2,
+                    temperature=0.4,
+                    max_tokens=1536,
+                )
+                new_body = (result.content or "").strip()
+                polished_sections.append({"title": title, "content": new_body or body})
+            except Exception as e:
+                logger.warning(f"[Wizard] 模块「{title}」润色失败，保留原文: {e}")
+                polished_sections.append({"title": title, "content": body})
+
+        raw_text = "\n\n".join(f"{s['title']}\n{s['content']}" for s in polished_sections)
+        return {"sections": polished_sections, "raw_text": raw_text}
 
     def _import_to_library(
         self,

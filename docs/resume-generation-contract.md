@@ -45,6 +45,8 @@
 | GET | `/api/resume-generation/draft` | 读草稿 |
 | DELETE | `/api/resume-generation/draft` | 清草稿 |
 | POST | `/api/resume-generation/star` | `{experiences:[WizardExperienceCreate]}` → `{items:[StarResultItem]}`（LLM，~30-50s，前端超时建议 ≥180s） |
+| POST | `/api/resume-generation/experiences/structure` | `{text, directions?}` → `{items:[ExperienceDraftItem]}` 自然语言描述结构化+润色（03，LLM） |
+| POST | `/api/resume-generation/experiences/generate` | `{directions?, count?}` → `{items:[ExperienceDraftItem]}` 无经历时按画像/方向生成（03，LLM） |
 | POST | `/api/resume-generation/photo` | multipart `file`（jpg/jpeg/png/webp，≤5MB）→ `{id,filename,url,created_at}`（每用户一张，覆盖） |
 | GET | `/api/resume-generation/photo` | 当前照片元信息（无则 `null`） |
 | GET | `/api/resume-generation/photo/file?id=` | 照片二进制（`<img :src>` 可直接用） |

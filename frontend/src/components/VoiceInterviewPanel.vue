@@ -5,15 +5,36 @@
       <el-tag :type="stageTagType" size="small">{{ stageLabel }}</el-tag>
       <el-tag v-if="state.connected" type="success" size="small">已连接</el-tag>
       <el-tag v-else type="info" size="small">未连接</el-tag>
+      <span v-if="turnHint" class="vi-turn-hint">{{ turnHint }}</span>
     </div>
 
     <!-- 主内容区 -->
     <div class="vi-body" ref="bodyRef">
-      <!-- 空状态 -->
-      <div v-if="state.stage === 'idle' && state.chatLog.length === 0" class="vi-empty">
+      <!-- 连接中 / 开场准备（首题前的可见反馈） -->
+      <div v-if="showStarting" class="vi-starting">
+        <div class="starting-orb" aria-hidden="true">
+          <Loader2 :size="28" class="spin" />
+        </div>
+        <p class="starting-title">{{ startingTitle }}</p>
+        <p class="starting-desc">{{ startingDesc }}</p>
+        <div class="starting-steps">
+          <div class="s-step" :class="{ on: state.connected }">
+            <span class="s-dot" />连接面试服务
+          </div>
+          <div class="s-step" :class="{ on: state.stage === 'thinking' || state.stage === 'speaking' || state.chatLog.length > 0 }">
+            <span class="s-dot" />面试官准备开场
+          </div>
+          <div class="s-step" :class="{ on: state.stage === 'speaking' || state.chatLog.length > 0 }">
+            <span class="s-dot" />第一题就绪
+          </div>
+        </div>
+      </div>
+
+      <!-- 空状态（未自动启动时） -->
+      <div v-else-if="state.stage === 'idle' && state.chatLog.length === 0" class="vi-empty">
         <el-button type="primary" size="large" @click="handleStart">
           <Mic :size="18" />
-          {{ mode === 'chat' ? '开始语音对话' : '开始面试' }}
+          {{ idleLabel }}
         </el-button>
       </div>
 
@@ -39,10 +60,14 @@
         <div class="vi-chat-text">{{ state.currentQuestion }}</div>
       </div>
 
-      <!-- 思考中 -->
-      <div v-if="state.stage === 'thinking'" class="vi-thinking">
+      <!-- 轮次思考中（有对话后的思考） -->
+      <div v-if="!showStarting && state.stage === 'thinking' && state.chatLog.length > 0" class="vi-thinking">
         <Loader2 :size="16" class="spin" />
-        {{ mode === 'chat' ? 'AI 正在思考...' : '面试官正在思考...' }}
+        面试官正在思考下一句…
+      </div>
+      <div v-else-if="!showStarting && state.stage === 'thinking'" class="vi-thinking">
+        <Loader2 :size="16" class="spin" />
+        面试官正在准备开场，通常需要 20–40 秒…
       </div>
 
       <!-- 错误 -->
@@ -55,30 +80,32 @@
         @close="state.errorMessage = ''"
       />
 
-      <!-- 面试报告 -->
+      <!-- 面试报告（简版，完整报告由父级渲染） -->
       <div v-if="state.stage === 'done' && state.report" class="vi-report">
         <el-card>
           <template #header>
-            <span>面试报告</span>
+            <span>面试结束</span>
           </template>
           <p v-if="state.report.summary">{{ state.report.summary }}</p>
-          <p v-if="state.report.overall_score">
+          <p v-if="state.report.overall_score != null">
             综合评分：<el-tag type="primary">{{ state.report.overall_score }}</el-tag>
           </p>
-          <div v-if="(state.report.suggestions as string[])?.length">
-            <p class="vi-label">建议：</p>
-            <ul>
-              <li v-for="(s, i) in (state.report.suggestions as string[])" :key="i">{{ s }}</li>
-            </ul>
-          </div>
         </el-card>
       </div>
     </div>
 
     <!-- 底部操作栏 -->
     <div class="vi-footer">
+      <!-- 连接/开场中：禁止误触录音 -->
+      <template v-if="showStarting">
+        <el-button type="primary" circle size="large" disabled>
+          <Loader2 :size="18" class="spin" />
+        </el-button>
+        <span class="vi-hint">{{ startingHint }}</span>
+      </template>
+
       <!-- 录音中：显示停止/打断按钮 -->
-      <template v-if="state.recording">
+      <template v-else-if="state.recording">
         <el-button type="warning" circle size="large" @click="handleEndOfSpeech">
           <Square :size="18" />
         </el-button>
@@ -103,15 +130,18 @@
 
       <!-- 面试结束 -->
       <template v-else-if="state.stage === 'done'">
-        <el-button v-if="mode === 'chat'" type="primary" @click="endInterview">
-          结束对话
-        </el-button>
-        <el-button v-else type="primary" @click="handleRestart">
-          重新开始
-        </el-button>
+        <el-button type="primary" @click="handleRestart">重新开始</el-button>
       </template>
 
-      <!-- 文字输入（调试用） -->
+      <!-- 出错：仍保留恢复入口，避免只剩文字框 -->
+      <template v-else-if="state.stage === 'error'">
+        <el-button type="primary" circle size="large" @click="handleRecover">
+          <Mic :size="18" />
+        </el-button>
+        <span class="vi-hint">出错了 · 点击重试连接并继续回答</span>
+      </template>
+
+      <!-- 文字输入（调试/补充） -->
       <div v-if="state.connected && state.stage !== 'done'" class="vi-text-input">
         <el-input
           v-model="textInput"
@@ -137,8 +167,15 @@ import { useSessionStore } from '../stores/session'
 const props = withDefaults(defineProps<{
   wsUrl: string
   mode?: 'interview' | 'chat'
+  /** 外部注入启动参数（主页语音面试）；不传则回退 session 会话上下文 */
+  startPayload?: UseVoiceChatOptions['startPayload']
+  /** 挂载后是否自动连接。false 时由父级点「开始」触发 */
+  autoConnect?: boolean
+  maxTurns?: number
 }>(), {
   mode: 'interview',
+  autoConnect: true,
+  maxTurns: 8,
 })
 
 const session = useSessionStore()
@@ -146,6 +183,7 @@ const session = useSessionStore()
 const emit = defineEmits<{
   (e: 'complete', report: Record<string, unknown>): void
   (e: 'end'): void
+  (e: 'started', interviewId: string): void
 }>()
 
 function endInterview() {
@@ -153,24 +191,32 @@ function endInterview() {
   emit('end')
 }
 
-const startPayload: UseVoiceChatOptions['startPayload'] = {
-  jd_analysis: (session.jdAnalysis as unknown as Record<string, unknown>) || {},
-  profile: (session.profile as unknown as Record<string, unknown>) || {},
-  ...(props.mode === 'interview' ? {
+const resolvedPayload = computed<UseVoiceChatOptions['startPayload']>(() => {
+  if (props.startPayload) return props.startPayload
+  const jd = (session.jdAnalysis as unknown as Record<string, unknown>) || {}
+  const profile = (session.profile as unknown as Record<string, unknown>) || {}
+  if (props.mode !== 'interview') {
+    return { jd_analysis: jd, profile }
+  }
+  return {
+    jd_analysis: jd,
+    profile,
     referenced_questions: (session.interviewQuestions || []).map(q => q.question).slice(0, 20),
-    max_turns: 10,
-  } : {}),
-}
+    max_turns: props.maxTurns,
+  }
+})
 
 const options: UseVoiceChatOptions = {
   wsUrl: props.wsUrl,
-  startPayload,
+  startPayload: resolvedPayload.value,
 }
 
 const {
   state,
   connect,
   disconnect,
+  resetForNewInterview,
+  setStartPayload,
   startRecording,
   stopRecording,
   endOfSpeech,
@@ -181,7 +227,40 @@ const {
 const textInput = ref('')
 const bodyRef = ref<HTMLElement>()
 
-// 自动滚动到底部
+const idleLabel = computed(() => (props.mode === 'chat' ? '开始语音对话' : '开始面试'))
+
+/** 首题尚未就绪：连接中 / 开场生成中 */
+const showStarting = computed(() => {
+  if (state.stage === 'done' || state.stage === 'error') return false
+  if (state.chatLog.length > 0) return false
+  if (state.stage === 'connecting') return true
+  if (state.stage === 'thinking' && !state.currentQuestion) return true
+  if (state.stage === 'speaking' && !state.currentQuestion && !state.playing) return true
+  return false
+})
+
+const startingTitle = computed(() => {
+  if (state.stage === 'connecting' || !state.connected) return '正在连接面试服务…'
+  return '面试官正在准备开场…'
+})
+
+const startingDesc = computed(() => {
+  if (state.stage === 'connecting' || !state.connected) {
+    return '建立安全语音通道，请稍候'
+  }
+  return '正在根据你的岗位与画像生成第一题，通常需要 20–40 秒。生成后会自动开始播报。'
+})
+
+const startingHint = computed(() =>
+  state.connected ? '面试官准备中，请稍候…' : '连接中…',
+)
+
+const turnHint = computed(() => {
+  if (props.mode !== 'interview') return ''
+  const userTurns = state.chatLog.filter(e => e.role === 'user').length
+  return userTurns ? `已答 ${userTurns} / ${props.maxTurns} 轮` : ''
+})
+
 function scrollToBottom() {
   nextTick(() => {
     if (bodyRef.value) {
@@ -193,11 +272,16 @@ function scrollToBottom() {
 watch(() => state.chatLog.length, scrollToBottom)
 watch(() => state.currentQuestion, scrollToBottom)
 
+watch(() => state.interviewId, (id) => {
+  if (id) emit('started', id)
+})
+
 // ── 计算属性 ──────────────────────────────────────────
 
 const stageLabel = computed(() => {
   const map: Record<string, string> = {
     idle: '准备中',
+    connecting: '连接中',
     listening: '正在听',
     thinking: '思考中',
     speaking: '面试官发言',
@@ -210,6 +294,7 @@ const stageLabel = computed(() => {
 const stageTagType = computed(() => {
   const map: Record<string, string> = {
     idle: 'info',
+    connecting: 'warning',
     listening: 'success',
     thinking: 'warning',
     speaking: 'primary',
@@ -247,12 +332,29 @@ function handleSendText() {
 
 function handleRestart() {
   disconnect()
-  state.stage = 'idle'
-  state.asrText = ''
-  state.currentQuestion = ''
-  state.chatLog = []
-  state.report = null
+  resetForNewInterview()
+  setStartPayload(resolvedPayload.value)
+  connect()
+}
+
+/** 错误态恢复：清错误 → 若有 interviewId 则 RESUME，否则重新 START */
+function handleRecover() {
   state.errorMessage = ''
+  state.stage = 'connecting'
+  if (state.interviewId || props.startPayload || resolvedPayload.value) {
+    // 有 id 走 resume（useVoiceChat.connect 内优先 resume）
+    connect()
+  } else {
+    handleStart()
+  }
+}
+
+/** 父级准备页点「开始」时调用：注入最新负载并连接 */
+function startWithPayload(payload: NonNullable<UseVoiceChatOptions['startPayload']>) {
+  disconnect()
+  resetForNewInterview()
+  setStartPayload(payload)
+  state.stage = 'connecting'
   connect()
 }
 
@@ -262,9 +364,20 @@ watch(() => state.report, (report) => {
   if (report) emit('complete', report)
 })
 
-// 组件挂载后自动连接 WebSocket 并启动面试
 onMounted(() => {
-  connect()
+  if (props.autoConnect) {
+    connect()
+  }
+})
+
+defineExpose({
+  state,
+  connect,
+  disconnect,
+  resetForNewInterview,
+  setStartPayload,
+  startWithPayload,
+  endInterview,
 })
 </script>
 
@@ -273,22 +386,34 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   padding: var(--space-4);
   gap: var(--space-3);
+  overflow: hidden;
 }
 
 .vi-header {
+  flex-shrink: 0;
   display: flex;
   gap: var(--space-2);
   align-items: center;
 }
 
+.vi-turn-hint {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
 .vi-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  -webkit-overflow-scrolling: touch;
 }
 
 .vi-empty {
@@ -296,6 +421,75 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   height: 100%;
+}
+
+.vi-starting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.starting-orb {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--color-accent-50);
+  border: 1px solid var(--color-accent-200);
+  color: var(--color-accent-600);
+}
+
+.starting-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--color-text-primary);
+}
+
+.starting-desc {
+  margin: 0;
+  max-width: 360px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.starting-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: var(--space-2);
+  text-align: left;
+}
+
+.s-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.s-step.on {
+  color: var(--color-accent-600);
+}
+
+.s-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-gray-300);
+  flex-shrink: 0;
+}
+
+.s-step.on .s-dot {
+  background: var(--color-accent-600);
 }
 
 .vi-label {
@@ -368,7 +562,7 @@ onMounted(() => {
 .vi-report :deep(.el-card__header) {
   font-family: var(--font-display);
   font-size: var(--text-md);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--weight-semibold);
   color: var(--color-text-primary);
 }
 
@@ -384,12 +578,14 @@ onMounted(() => {
 }
 
 .vi-footer {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
   padding-top: var(--space-2);
   border-top: var(--border-light);
+  background: var(--color-bg);
 }
 
 .vi-hint {

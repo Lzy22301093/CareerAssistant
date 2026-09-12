@@ -32,8 +32,8 @@ class InterviewerAgent(BaseAgent):
     description = "生成面试提问"
 
     temperature: float = 0.7
-    # max_tokens 需足够大：MIMO 模型可能有内部思考链消耗 token，过小会导致输出为空
-    max_tokens: int = 8192
+    # 面试出题需要结构化 JSON，但不需要 8192；过大拖慢首响
+    max_tokens: int = 2048
     max_parse_attempts: int = 2
 
     def build_messages(self, **kwargs) -> list[Message]:

@@ -153,7 +153,7 @@ class MatchService:
         try:
             profile_ctx = build_profile_context(db, user_id)
             if not profile_ctx:
-                raise MatchError("暂无已确认画像，请先到个人知识库完善并确认画像条目")
+                raise MatchError("暂无已确认画像，请先到个人画像完善并确认条目")
             resume_content: dict[str, Any] | None = None
             if task.resume_version_id:
                 version = db.query(ResumeVersion).filter(ResumeVersion.id == task.resume_version_id).first()

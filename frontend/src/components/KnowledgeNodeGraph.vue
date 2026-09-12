@@ -41,8 +41,8 @@
       </g>
     </svg>
     <div v-if="!categories.length" class="graph-empty">
-      <p>知识库还是空的</p>
-      <p class="sub">点击「补充知识库」，开始建立你的个人画像</p>
+      <p>画像还是空的</p>
+      <p class="sub">点击「完善画像」，开始建立你的个人画像</p>
     </div>
   </div>
 </template>
@@ -72,7 +72,7 @@ const CATEGORY_LABELS: Record<ProfileCategory, string> = {
   experience: '项目经历',
   skill: '专业技能',
   target: '目标岗位',
-  soft: '自我评价',
+  soft: '软性信息',
   interview_feedback: '面试反馈',
   award: '个人奖项',
   social: '社交账号',

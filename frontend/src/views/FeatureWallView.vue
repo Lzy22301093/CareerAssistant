@@ -47,8 +47,6 @@ import {
   Library,
   FileText,
   MessagesSquare,
-  Compass,
-  Heart,
   Megaphone,
   Briefcase,
   Code2,
@@ -69,10 +67,17 @@ type Card = {
 
 const cards: Card[] = [
   {
-    label: '个人知识库',
-    desc: '基本事实 · 教育 · 经历 · 技能 · 面试反馈',
+    label: '个人画像',
+    desc: '基本信息 · 教育 · 实习/项目 · 技能 · 投递方向 · 软性信息',
     icon: Library,
     route: '/knowledge-base',
+    accent: '#c15f3c',
+  },
+  {
+    label: '简历生成',
+    desc: '8 步向导，从画像到生成 · 导入 Word/PDF 简历',
+    icon: Sparkles,
+    route: '/resume-generation',
     accent: '#c15f3c',
   },
   {
@@ -83,15 +88,8 @@ const cards: Card[] = [
     accent: '#b57b1f',
   },
   {
-    label: '简历生成',
-    desc: '8 步向导，从画像到生成 · 导入 Word/PDF 简历',
-    icon: Sparkles,
-    route: '/resume-generation',
-    accent: '#c15f3c',
-  },
-  {
     label: 'AI 模拟面试',
-    desc: '基于你的画像与简历，反复演练',
+    desc: '语音多轮面试 · JD 定制 · 反馈报告',
     icon: MessagesSquare,
     route: '/mock-interview',
     accent: '#5b6b9e',
@@ -102,20 +100,6 @@ const cards: Card[] = [
     icon: Code2,
     route: '/workspace',
     accent: '#4c7f7d',
-  },
-  {
-    label: '画像与投递方向',
-    desc: 'AI 推荐方向，选 1~3 个目标岗位',
-    icon: Compass,
-    route: '/job-directions',
-    accent: '#8a5a83',
-  },
-  {
-    label: '软性信息',
-    desc: '性格 · 愿景 · 自我评价，AI 帮你生成',
-    icon: Heart,
-    route: '/soft-info',
-    accent: '#b85c6e',
   },
   {
     label: '投递记录',

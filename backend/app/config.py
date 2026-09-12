@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # 语音模型（共享 base_url / api_key）
     asr_model: str = "mimo-v2.5-asr"
     tts_model: str = "mimo-v2.5-tts"
+    # TTS 默认音色 / 语速（用户可在语音面试页覆盖）
+    # 官网示例音色：Chloe / Mia / Milo / Dean
+    tts_default_voice: str = "Chloe"
+    tts_default_speed: float = 1.1
 
     # JWT Auth（同样必须从环境注入，空值在 AuthService 使用时抛出明确错误）
     jwt_secret_key: str = ""

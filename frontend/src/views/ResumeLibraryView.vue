@@ -652,8 +652,21 @@ async function scrollChat() {
 }
 
 function extractError(err: unknown, fallback: string): string {
-  const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-  return detail || fallback
+  const anyErr = err as {
+    response?: { data?: { detail?: string | { msg?: string }[] } }
+    message?: string
+  }
+  const detail = anyErr?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail) && detail.length) {
+    return detail.map((d) => d?.msg || '').filter(Boolean).join('; ') || fallback
+  }
+  if (anyErr?.message && /timeout|Network Error/i.test(anyErr.message)) {
+    return anyErr.message.includes('timeout')
+      ? '请求超时（改写生成较慢），请稍后重试或简化指令'
+      : '网络异常，请检查后端服务是否可用'
+  }
+  return fallback
 }
 
 // ---- 框选模式：拖拽画框 → 命中区域卡片 → 记录 bounding_box ----

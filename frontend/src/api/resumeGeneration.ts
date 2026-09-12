@@ -1,5 +1,6 @@
 import client from './client'
 import type {
+  ExperienceDraft,
   ResumeDraftInfo,
   ResumeLibraryDoc,
   ResumePhotoInfo,
@@ -40,6 +41,24 @@ export function starStructuring(experiences: WizardExperience[]) {
   )
 }
 
+/** 03：自然语言描述 → 结构化+润色经历列表 */
+export function structureExperiences(text: string, directions: string[] = []) {
+  return client.post<{ items: ExperienceDraft[] }>(
+    '/resume-generation/experiences/structure',
+    { text, directions },
+    { timeout: 180000 },
+  )
+}
+
+/** 03：无经历时按画像/方向 AI 生成经历草稿 */
+export function generateExperiences(directions: string[] = [], count = 2) {
+  return client.post<{ items: ExperienceDraft[] }>(
+    '/resume-generation/experiences/generate',
+    { directions, count },
+    { timeout: 180000 },
+  )
+}
+
 export function uploadPhotoFile(file: File) {
   const form = new FormData()
   form.append('file', file)
@@ -50,8 +69,16 @@ export function getPhotoInfo() {
   return client.get<ResumePhotoInfo | null>('/resume-generation/photo')
 }
 
+/** 带鉴权拉取证件照二进制，供 <img> 预览（img src 不会带 Bearer） */
+export async function fetchPhotoBlob(photoId: number): Promise<Blob> {
+  const res = await client.get<Blob>(`/resume-generation/photo/file?id=${photoId}`, {
+    responseType: 'blob',
+  })
+  return res.data
+}
+
 export function generateResume(payload: WizardGeneratePayload) {
-  // 生成含 LLM 润色（可能两次调用），放宽超时
+  // 生成含 LLM 润色（可能多次调用），放宽超时
   return client.post<WizardGenerateResult>('/resume-generation/generate', payload, { timeout: 300000 })
 }
 
@@ -70,10 +97,16 @@ export async function exportResume(
   content: { sections: { title: string; content: string }[]; raw_text: string },
   title: string,
   format: ExportFormat,
+  photoId?: number | null,
 ) {
   const res = await client.post(
     '/resume-generation/export',
-    { title, content, format },
+    {
+      title,
+      content,
+      format,
+      photo_id: photoId || null,
+    },
     { responseType: 'blob', timeout: 120000 },
   )
   return res.data as Blob

@@ -1,6 +1,8 @@
 import client from './client'
 import type {
   InterviewAnswerResponse,
+  InterviewHistoryDetail,
+  InterviewHistoryItem,
   InterviewStartParams,
   InterviewStartResponse,
   InterviewState,
@@ -26,4 +28,61 @@ export function getInterviewState(interviewId: string) {
 
 export function getInterviewReport(interviewId: string) {
   return client.get<Record<string, unknown>>(`/interview/${interviewId}/report`)
+}
+
+export function listInterviewHistory(limit = 50) {
+  return client.get<InterviewHistoryItem[]>('/interview/history', { params: { limit } })
+}
+
+export function getInterviewHistoryDetail(interviewId: string) {
+  return client.get<InterviewHistoryDetail>(`/interview/history/${interviewId}`)
+}
+
+export type TtsStyleKey = 'professional' | 'casual' | 'concise'
+
+export function listTtsVoices() {
+  return client.get<{ default: string; voices: { id: string; label: string }[] }>(
+    '/interview/tts-voices',
+  )
+}
+
+export function previewTts(body: {
+  text?: string
+  voice?: string
+  speed?: number
+  style?: TtsStyleKey | string
+}) {
+  return client.post<ArrayBuffer>('/interview/tts-preview', body, {
+    responseType: 'arraybuffer',
+    timeout: 60000,
+  })
+}
+
+/** 从 arraybuffer 错误响应里解析出后端 detail 文案 */
+export async function readTtsPreviewError(err: unknown): Promise<string> {
+  const anyErr = err as {
+    response?: { data?: ArrayBuffer | Blob | unknown; status?: number }
+    message?: string
+  }
+  const data = anyErr?.response?.data
+  try {
+    let text = ''
+    if (data instanceof ArrayBuffer) {
+      text = new TextDecoder().decode(data)
+    } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
+      text = await data.text()
+    } else if (typeof data === 'string') {
+      text = data
+    }
+    if (text) {
+      const obj = JSON.parse(text)
+      if (obj?.detail) return String(obj.detail)
+      if (obj?.message) return String(obj.message)
+    }
+  } catch {
+    /* ignore parse errors */
+  }
+  if (anyErr?.response?.status === 503) return '语音服务未配置 API Key，请检查 backend/.env'
+  if (anyErr?.response?.status === 502) return '语音合成失败，请稍后重试'
+  return anyErr?.message || '试听失败，请检查后端语音服务'
 }

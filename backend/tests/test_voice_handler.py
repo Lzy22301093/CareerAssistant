@@ -5,7 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.voice.interview_handler import VoiceInterviewHandler
+from app.voice.interview_handler import VoiceInterviewHandler, _is_short_non_answer
+
+
+def test_short_non_answer_patterns():
+    assert _is_short_non_answer("嗯")
+    assert _is_short_non_answer("嗯。")
+    assert _is_short_non_answer("我不会")
+    assert _is_short_non_answer("不知道")
+    assert _is_short_non_answer("")
+    assert not _is_short_non_answer("我做过 Spring Boot 项目，负责 JWT 认证模块")
+    assert not _is_short_non_answer("回答")
 
 
 def _make_handler():

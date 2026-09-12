@@ -29,7 +29,8 @@ def build_interview_graph(agents: dict[str, Any]):
     执行模式：每次 ainvoke 执行从当前状态到下一个等待点的路径。
     InterviewHandler 控制面试循环，不是图自己循环。
 
-    首次调用：START → open_interview → ask_question → END
+    首次调用：START → open_interview → END
+    （开场节点内部已生成第一题，避免 open→ask 双跑 interviewer）
     后续调用：START → evaluate → decide_next → ask_question → END
     结束调用：START → evaluate → decide_next → finish → generate_report → END
     """
@@ -49,8 +50,8 @@ def build_interview_graph(agents: dict[str, Any]):
     # 入口
     graph.set_entry_point("open_interview")
 
-    # 首次流程：open_interview → ask_question → END
-    graph.add_edge("open_interview", "ask_question")
+    # 首次流程：open_interview 直接结束（内部已产出第一题）
+    graph.add_edge("open_interview", END)
     graph.add_edge("ask_question", END)
 
     return graph

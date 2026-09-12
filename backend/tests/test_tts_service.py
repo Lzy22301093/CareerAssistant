@@ -5,7 +5,52 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.voice.tts_service import TTSService
+from app.voice.tts_service import (
+    STYLE_PRESETS,
+    TTSService,
+    clamp_speed,
+    normalize_voice,
+    resolve_style,
+    wav_to_pcm,
+)
+
+
+def test_clamp_speed_bounds():
+    assert clamp_speed(0.1) == 0.7
+    assert clamp_speed(3.0) == 1.6
+    assert clamp_speed(1.2) == 1.2
+
+
+def test_resolve_style_includes_speed_hint():
+    s = resolve_style("casual", 1.4)
+    assert "轻松" in s or "聊天" in s
+    assert "快" in s
+    s2 = resolve_style("professional", 0.8)
+    assert "慢" in s2 or "清晰" in s2
+
+
+def test_style_presets_exist():
+    assert set(STYLE_PRESETS) >= {"professional", "casual", "concise"}
+
+
+def test_normalize_voice_defaults_to_chloe():
+    assert normalize_voice(None) == "Chloe"
+    assert normalize_voice("mimo_default") == "Chloe"
+    assert normalize_voice("Mia") == "Mia"
+
+
+def test_wav_to_pcm_extracts_data_chunk():
+    import struct
+
+    data = b"\x00\x01\x02\x03"
+    header = b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVE"
+    header += b"fmt " + struct.pack("<I", 16) + struct.pack(
+        "<HHIIHH", 1, 1, 24000, 48000, 2, 16
+    )
+    header += b"data" + struct.pack("<I", len(data))
+    wav = header + data
+    assert wav_to_pcm(wav) == data
+    assert wav_to_pcm(b"not-a-wav") == b"not-a-wav"
 
 
 @pytest.fixture

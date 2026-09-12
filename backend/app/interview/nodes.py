@@ -36,7 +36,7 @@ async def open_interview_node(
     company = jd.get("company", "我们公司")
     opening = f"你好，我是{company}的面试官，今天面试{target}这个岗位。我们开始吧。"
 
-    # 生成第一个问题
+    # 生成第一个问题（开场图只跑本节点，不再二次 ask_question）
     interviewer = agents.get("interviewer")
     if interviewer:
         result = await interviewer.run(
@@ -57,7 +57,7 @@ async def open_interview_node(
 
     return {
         "phase": "opening",
-        "current_question": first_question,
+        "current_question": full_response,
         "current_question_category": first_category,
         "pending_topics": pending_topics,
         "dimension_scores": dimension_scores,
@@ -66,7 +66,6 @@ async def open_interview_node(
         "conversation_history": [
             {"role": "assistant", "content": full_response, "timestamp": _now()},
         ],
-        "interrupt_checkpoint": "open_interview",
     }
 
 
@@ -131,9 +130,10 @@ async def evaluate_node(
         "covered_topics": covered,
         "pending_topics": pending,
         "turn_count": turn + 1,
-        "conversation_history": [
+        "conversation_history": _append_history(
+            state.get("conversation_history", []),
             {"role": "user", "content": state.get("current_answer", ""), "timestamp": _now()},
-        ],
+        ),
         "interrupt_checkpoint": "evaluate",
     }
 
@@ -169,9 +169,10 @@ async def ask_question_node(
         "current_question": question,
         "current_question_category": category,
         "phase": "core_probing",
-        "conversation_history": [
+        "conversation_history": _append_history(
+            state.get("conversation_history", []),
             {"role": "assistant", "content": question, "timestamp": _now()},
-        ],
+        ),
         "interrupt_checkpoint": "ask_question",
     }
     if new_difficulty and new_difficulty != state.get("difficulty_level"):
@@ -268,6 +269,14 @@ async def generate_report_node(
 
 
 # --- 辅助函数 ---
+
+def _append_history(history: list[dict] | None, entry: dict) -> list[dict]:
+    """追加一条对话历史，避免整段替换导致上下文丢失。"""
+    base = list(history or [])
+    base.append(entry)
+    # 防止异常场景下历史无限膨胀
+    return base[-80:]
+
 
 def _extract_topics(jd: dict) -> list[str]:
     """从 JD 分析结果提取待考察话题。"""

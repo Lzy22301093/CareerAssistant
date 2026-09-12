@@ -279,6 +279,12 @@ async def rewrite_section(
     except ValueError as e:
         # LLM provider 初始化失败（缺 key）等环境性错误
         raise HTTPException(status_code=503, detail=f"改写能力不可用: {e}")
+    except Exception as e:
+        # 未分类异常兜底，避免裸 500 导致前端只能显示通用失败文案
+        import logging
+
+        logging.getLogger(__name__).exception(f"[Rewrite] section={section_id} 未处理异常")
+        raise HTTPException(status_code=502, detail=f"改写生成失败: {e}")
 
 
 @router.post("/versions/{version_id}/adopt-rewrite", response_model=ResumeVersionOut)

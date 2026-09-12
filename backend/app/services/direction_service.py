@@ -71,7 +71,7 @@ class DirectionService:
         """
         profile_ctx = build_profile_context(db, user_id)
         if not profile_ctx:
-            raise DirectionError("暂无已确认画像，请先到个人知识库完善并确认画像条目")
+            raise DirectionError("暂无已确认画像，请先到个人画像完善并确认条目")
 
         from app.llm.structured import ainvoke_json_with_schema
 

@@ -135,7 +135,7 @@
           </div>
           <div class="avatar-info">
             <p>支持 JPG / PNG / WEBP，自动居中裁剪为 256×256。</p>
-            <p class="muted">这张头像将展示在个人知识库节点图中央，连接你的所有信息卡片。</p>
+            <p class="muted">这张头像将展示在个人画像节点图中央，连接你的所有信息卡片。</p>
             <div class="avatar-actions">
               <el-button type="primary" :loading="avatarUploading" @click="fileInput?.click()">
                 <Upload :size="14" style="margin-right: 4px" /> 上传头像
@@ -183,13 +183,16 @@
     <template #footer>
       <div class="wiz-foot">
         <div class="wiz-progress">
-          <span class="done-count">已填 {{ filledCount }}</span>
-          <span class="wiz-req">必填 * · 完成后进入系统</span>
+          <span class="done-count">已填 {{ filledCount }} 项</span>
+          <span class="wiz-req">带 * 为必填</span>
         </div>
         <div class="wiz-foot-actions">
-          <el-button v-if="step > 1 && step <= STEPS.length" @click="step--">上一步</el-button>
-          <el-button v-if="step < STEPS.length" type="primary" @click="next">{{ step === STEPS.length ? '完成' : '保存并下一步' }} <ArrowRight :size="14" style="margin-left: 4px" /></el-button>
-          <el-button v-else type="primary" :loading="saving" @click="saveAll">完成 →</el-button>
+          <el-button v-if="step > 1" @click="step--">上一步</el-button>
+          <el-button v-if="step < STEPS.length" type="primary" @click="next">
+            保存并下一步
+            <ArrowRight :size="14" style="margin-left: 4px" />
+          </el-button>
+          <el-button v-else type="primary" :loading="saving" @click="saveAll">完成</el-button>
         </div>
       </div>
     </template>
@@ -240,7 +243,7 @@ const EXTRA_OPTIONS = [
   { value: 'experience', label: '项目经历' },
   { value: 'skill', label: '专业技能' },
   { value: 'target', label: '目标岗位' },
-  { value: 'soft', label: '自我评价' },
+  { value: 'soft', label: '软性信息' },
   { value: 'interview_feedback', label: '面试反馈' },
 ]
 

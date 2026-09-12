@@ -17,9 +17,10 @@ class SectionRewriterAgent(BaseAgent):
     """区域改写能力单元（生成类，主模型）。"""
 
     name = "section_rewriter"
-    temperature = 0.7
+    temperature = 0.5
     max_tokens = 4096
     max_parse_attempts = 2  # JSON 解析失败自动回喂修复一次
+    json_mode = True  # MIMO 需要 response_format=json_object，否则易返回散文导致校验失败
 
     SYSTEM_PROMPT = """你是资深简历改写专家。用户选中了简历中的一个区域，要求你产出改写候选。
 

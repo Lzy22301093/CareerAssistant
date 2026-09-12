@@ -1,10 +1,10 @@
-"""ProfileFormService — 知识库分阶段向导（阶段3）。
+"""ProfileFormService — 个人画像分阶段向导（阶段3）。
 
 把 FResume 风格的结构化"个人画像"表单（基本信息 / 教育经历 / 个人奖项 / 社交账号）
 写入现有 `profile_items` 表，并保持与下游消费方的一致：
 
 - 写出的条目标题对齐 `profile_service.aggregate_confirmed_profile` 与
-  简历生成"从知识库导入"共同识别的标题（姓名/邮箱/电话/所在地/性别/自我评价等），
+  简历生成"从画像导入"共同识别的标题（姓名/邮箱/电话/所在地/性别/自我评价等），
   保证方向推荐 / 软性信息 / 简历生成都能正确复用。
 - 采用 upsert（按 category+title 幂等），重复保存不产生重复条目。
 

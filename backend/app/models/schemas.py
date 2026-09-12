@@ -499,10 +499,13 @@ class StarResultItem(BaseModel):
     exp_type: str = "项目"
     company: str | None = None
     title: str | None = None
+    duration: str | None = None
     situation: str = ""
     task: str = ""
     action: str = ""
     result: str = ""
+    duty: str | None = None
+    achievement: str | None = None
 
 
 class StarBatch(BaseModel):
@@ -518,6 +521,37 @@ class StarRequest(BaseModel):
 class StarResponse(BaseModel):
     """STAR 结构化响应。"""
     items: list[StarResultItem] = Field(default_factory=list)
+
+
+class ExperienceDraftItem(BaseModel):
+    """03 经历补充：自然语言结构化 / AI 生成的经历条目。"""
+    exp_type: str = Field(default="项目", description="项目 | 实习 | 竞赛 | 课程 | 校园")
+    company: str = ""
+    title: str = ""
+    duration: str = ""
+    duty: str = ""
+    achievement: str = ""
+    situation: str = ""
+    task: str = ""
+    action: str = ""
+    result: str = ""
+
+
+class ExperienceStructureRequest(BaseModel):
+    """自然语言描述 → 结构化+润色经历列表。"""
+    text: str = Field(..., min_length=1, max_length=8000, description="粗略经历描述")
+    directions: list[str] = Field(default_factory=list, description="02 选中的投递方向（可选）")
+
+
+class ExperienceGenerateRequest(BaseModel):
+    """无经历时按画像/方向 AI 生成经历草稿。"""
+    directions: list[str] = Field(default_factory=list, description="02 选中的投递方向（可选）")
+    count: int = Field(default=2, ge=1, le=5, description="生成条数 1-5")
+
+
+class ExperienceListResponse(BaseModel):
+    """结构化/生成后的经历列表。"""
+    items: list[ExperienceDraftItem] = Field(default_factory=list)
 
 
 class WizardGenerateRequest(BaseModel):
@@ -546,6 +580,7 @@ class ResumeExportRequest(BaseModel):
     title: str = Field(default="我的简历", max_length=200, description="导出文件名（不含扩展名）")
     content: dict = Field(..., description='ResumeContent {"sections":[{"title","content"}],"raw_text":str}')
     format: str = Field(default="docx", description="docx | html | md | json")
+    photo_id: int | None = Field(default=None, description="可选证件照 id，导出 Word/HTML 时嵌入")
 
 
 class PhotoOut(BaseModel):

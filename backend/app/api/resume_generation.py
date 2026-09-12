@@ -17,6 +17,9 @@ from app.api.auth import require_auth
 from app.api.resume_library import _serialize_document
 from app.models.database import get_db
 from app.models.schemas import (
+    ExperienceGenerateRequest,
+    ExperienceListResponse,
+    ExperienceStructureRequest,
     PhotoOut,
     ResumeDraftOut,
     ResumeDraftSave,
@@ -68,6 +71,45 @@ async def clear_draft(user: dict = Depends(require_auth), db: Session = Depends(
     """清空生成向导草稿。"""
     service.clear_draft(db, user["id"])
     return None
+
+
+# === 03 经历补充：自然语言结构化 / AI 生成 ===
+
+
+@router.post("/experiences/structure", response_model=ExperienceListResponse)
+async def structure_experiences(
+    data: ExperienceStructureRequest,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """把自然语言粗略描述结构化并润色为经历列表。"""
+    llm = _load_llm()
+    try:
+        items = await service.structure_experiences(db, user["id"], data, llm)
+    except WizardError as e:
+        status = 502 if "未生成" in str(e) or "未能" in str(e) else 422
+        raise HTTPException(status_code=status, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"经历结构化失败: {e}")
+    return {"items": [i.model_dump() for i in items]}
+
+
+@router.post("/experiences/generate", response_model=ExperienceListResponse)
+async def generate_experiences(
+    data: ExperienceGenerateRequest,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """无经历时，按画像与方向 AI 生成经历草稿。"""
+    llm = _load_llm()
+    try:
+        items = await service.generate_experiences(db, user["id"], data, llm)
+    except WizardError as e:
+        status = 502 if "未生成" in str(e) else 422
+        raise HTTPException(status_code=status, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"经历生成失败: {e}")
+    return {"items": [i.model_dump() for i in items]}
 
 
 # === 03/04 STAR 结构化 ===
@@ -161,9 +203,20 @@ async def export_resume(
     user: dict = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    """把简历内容导出为文件（Word/HTML/Markdown/JSON）下载。"""
+    """把简历内容导出为文件（Word/HTML/Markdown/JSON）下载，可嵌证件照。"""
+    photo_bytes = None
+    photo_mime = None
+    if data.photo_id:
+        photo = service.get_photo(db, user["id"])
+        if photo is not None and photo.id == data.photo_id:
+            path = Path(photo.file_path)
+            if path.exists():
+                photo_bytes = path.read_bytes()
+                photo_mime = f"image/{photo.mime_type}"
     try:
-        content_bytes, media, ext = build_export(data.content, data.title, data.format)
+        content_bytes, media, ext = build_export(
+            data.content, data.title, data.format, photo_bytes, photo_mime
+        )
     except ResumeExportError as e:
         raise HTTPException(status_code=422, detail=str(e))
     safe_title = "".join(c if c.isalnum() or c in "-_. " else "_" for c in data.title).strip() or "我的简历"

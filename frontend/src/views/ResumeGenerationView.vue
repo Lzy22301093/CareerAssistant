@@ -1,7 +1,9 @@
 <template>
   <div class="gen-page">
     <AppNav>
-      <el-button text @click="onSaveDraft">暂存退出</el-button>
+      <el-button text @click="onExitToHome">
+        <House :size="15" style="margin-right: 4px" />返回主界面
+      </el-button>
     </AppNav>
 
     <div class="gen-shell">
@@ -29,7 +31,7 @@
             <span class="step-no">{{ s.no }}.</span>{{ s.short }}
           </button>
           <el-button class="draft-btn" text type="primary" @click="onSaveDraft">
-            <Save :size="14" style="margin-right: 4px" />暂存退出
+            <Save :size="14" style="margin-right: 4px" />暂存
           </el-button>
         </nav>
 
@@ -39,7 +41,7 @@
             <div class="panel-head">
               <h2>确认你的个人信息</h2>
               <el-button size="small" type="primary" plain @click="importFromKnowledge">
-                <Sparkles :size="14" style="margin-right: 4px" />从知识库导入
+                <Sparkles :size="14" style="margin-right: 4px" />从画像导入
               </el-button>
             </div>
             <el-form label-width="90px" class="gen-form">
@@ -80,11 +82,24 @@
           <template v-else-if="wizard.step === 2">
             <div class="panel-head">
               <h2>你的个人画像与投递方向</h2>
-              <el-button size="small" type="primary" :loading="dirLoading" @click="analyzeDirections">
-                <Compass :size="14" style="margin-right: 4px" />分析方向
-              </el-button>
+              <div class="head-actions">
+                <el-button size="small" type="primary" :loading="dirLoading" @click="analyzeDirections">
+                  <Compass :size="14" style="margin-right: 4px" />分析方向
+                </el-button>
+                <el-button
+                  size="small"
+                  :loading="dirSaving"
+                  :disabled="!wizard.directions.length || dirLoading"
+                  @click="saveDirectionsToProfile"
+                >
+                  <Save :size="14" style="margin-right: 4px" />保存到画像
+                </el-button>
+              </div>
             </div>
-            <p class="hint">AI 根据你的画像分析适合的投递方向，选 1~3 个感兴趣的方向。</p>
+            <p class="hint">优先使用画像中已确认的目标岗位；也可 AI 重新分析。选 1~3 个用于本次简历。</p>
+            <p v-if="dirsFromProfile.length" class="dir-profile-note">
+              已从个人画像带入 {{ dirsFromProfile.length }} 个已确认方向，可在下方调整。
+            </p>
             <div v-if="dirLoading" class="empty-block">正在分析你的画像…</div>
             <div v-else-if="directionError" class="empty-block">
               <p class="hint">{{ directionError }}</p>
@@ -103,14 +118,81 @@
                 <div class="dir-card-reason">{{ d.reason }}</div>
               </div>
             </div>
-            <div v-else class="empty-block">点击「分析方向」，或先到个人知识库完善画像。</div>
+            <div v-else class="empty-block">
+              点击「分析方向」，或先到个人画像完善信息 / 用「AI 推荐投递方向」。
+              <div style="margin-top: 12px">
+                <el-button size="small" text type="primary" @click="goKnowledge">去个人画像</el-button>
+              </div>
+            </div>
           </template>
 
-          <!-- 03 经历补充 -->
+          <!-- 03 经历补充（含可选 STAR） -->
           <template v-else-if="wizard.step === 3">
             <div class="panel-head">
               <h2>补充你的实践经历</h2>
               <el-button size="small" text type="primary" @click="addExperience"><Plus :size="13" style="margin-right: 3px" />加经历</el-button>
+            </div>
+            <p class="hint">优先从个人画像导入已确认的项目/实习经历；也可 AI 包装或手动填写。STAR 结构化为可选增强。</p>
+
+            <div class="exp-ai-row">
+              <button type="button" class="exp-chip" :class="{ on: importOpen }" @click="openImportFromProfile">
+                <span class="chip-num">①</span>
+                <span>{{ importingExp ? '正在读取画像…' : '从画像导入经历' }}</span>
+              </button>
+              <button type="button" class="exp-chip" :class="{ on: nlOpen }" @click="openNlMode('pack')">
+                <span class="chip-num">②</span>
+                <span>帮我包装经历</span>
+              </button>
+              <button type="button" class="exp-chip" :disabled="genExpLoading" @click="onAiGenerateExp">
+                <span class="chip-num">③</span>
+                <span>{{ genExpLoading ? '正在生成…' : '没有经历，AI 生成' }}</span>
+              </button>
+            </div>
+
+            <!-- 从画像导入 -->
+            <div v-if="importOpen" class="exp-nl-box">
+              <p v-if="importLoading" class="hint">正在读取个人画像中的经历…</p>
+              <p v-else-if="!profileExperiences.length" class="hint">
+                个人画像中暂无「项目/经历」条目。可先到
+                <el-button text type="primary" size="small" @click="goKnowledge">个人画像</el-button>
+                补充，或使用 AI 包装 / 生成。
+              </p>
+              <template v-else>
+                <p class="hint">勾选要写入本份简历的经历（来自已确认画像，可再编辑）：</p>
+                <div v-for="pe in profileExperiences" :key="pe.id" class="import-item">
+                  <el-checkbox v-model="pe.checked">
+                    <span class="import-title">{{ pe.title || '未命名经历' }}</span>
+                  </el-checkbox>
+                  <div class="import-preview">{{ pe.content.slice(0, 120) }}{{ pe.content.length > 120 ? '…' : '' }}</div>
+                </div>
+                <div class="exp-nl-actions">
+                  <el-button type="primary" :loading="importingExp" @click="applyProfileExperiences">
+                    导入所选（{{ profileExperiences.filter(p => p.checked).length }}）
+                  </el-button>
+                  <el-button @click="importOpen = false">收起</el-button>
+                </div>
+              </template>
+            </div>
+
+            <div v-if="nlOpen" class="exp-nl-box">
+              <el-input
+                ref="nlInputRef"
+                v-model="nlText"
+                type="textarea"
+                :rows="4"
+                placeholder="把你的经历粗略描述一下，如：参加了数学建模竞赛，负责数据处理…"
+              />
+              <div class="exp-nl-actions">
+                <el-button type="primary" :loading="structureLoading" @click="onStructureExp">
+                  结构化
+                </el-button>
+                <el-button @click="cancelNl">取消</el-button>
+              </div>
+            </div>
+            <p v-if="expAiError" class="err">{{ expAiError }}</p>
+
+            <div v-if="!wizard.experiences.length" class="empty-block">
+              还没有经历。优先「从画像导入」，或手动「加经历」/ AI 包装生成。
             </div>
             <div v-for="(exp, i) in wizard.experiences" :key="i" class="exp-card">
               <div class="exp-card-head">
@@ -119,51 +201,71 @@
                   <el-option v-for="t in ['项目', '实习', '竞赛', '课程', '校园']" :key="t" :label="t" :value="t" />
                 </el-select>
                 <span class="exp-spacer" />
+                <el-button size="small" text @click="toggleStar(i)">
+                  <Wand2 :size="13" style="margin-right: 3px" />{{ expandedStar[i] ? '收起 STAR' : 'STAR（可选）' }}
+                </el-button>
                 <el-button size="small" text @click="moveExp(i, -1)"><ArrowUp :size="13" /></el-button>
                 <el-button size="small" text @click="moveExp(i, 1)"><ArrowDown :size="13" /></el-button>
                 <el-button size="small" text type="danger" @click="wizard.experiences.splice(i, 1)"><Trash2 :size="13" /></el-button>
               </div>
               <el-form label-width="80px" class="gen-form">
                 <div class="form-grid">
+                  <el-form-item label="类型">
+                    <el-select v-model="exp.exp_type">
+                      <el-option v-for="t in ['项目', '实习', '竞赛', '课程', '校园']" :key="t" :label="t" :value="t" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="时间"><el-input v-model="exp.duration" placeholder="如 2024.06-2024.09" /></el-form-item>
                   <el-form-item label="公司/项目"><el-input v-model="exp.company" /></el-form-item>
                   <el-form-item label="角色"><el-input v-model="exp.title" /></el-form-item>
-                  <el-form-item label="时间"><el-input v-model="exp.duration" /></el-form-item>
                 </div>
-                <el-form-item label="职责"><el-input v-model="exp.duty" type="textarea" :rows="2" /></el-form-item>
+                <el-form-item label="职责"><el-input v-model="exp.duty" type="textarea" :rows="2" placeholder="做了什么" /></el-form-item>
                 <el-form-item label="成果/收获"><el-input v-model="exp.achievement" type="textarea" :rows="2" /></el-form-item>
+
+                <!-- 可选 STAR -->
+                <template v-if="expandedStar[i]">
+                  <div class="star-divider">STAR 结构化（可选，可 AI 批量生成）</div>
+                  <el-form-item label="情境"><el-input v-model="exp.situation" type="textarea" :rows="2" placeholder="S：背景与挑战" /></el-form-item>
+                  <el-form-item label="任务"><el-input v-model="exp.task" type="textarea" :rows="2" placeholder="T：目标与职责" /></el-form-item>
+                  <el-form-item label="行动"><el-input v-model="exp.action" type="textarea" :rows="2" placeholder="A：做了什么、用了什么方法" /></el-form-item>
+                  <el-form-item label="成果"><el-input v-model="exp.result" type="textarea" :rows="2" placeholder="R：可量化的结果" /></el-form-item>
+                </template>
               </el-form>
             </div>
+
+            <!-- 批量 STAR（可选增强） -->
+            <div v-if="wizard.experiences.length" class="star-batch">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :loading="starLoading"
+                @click="runStar"
+              >
+                <Wand2 :size="14" style="margin-right: 4px" />
+                {{ starLoading ? '正在 STAR 结构化…' : 'AI 一键 STAR（可选）' }}
+              </el-button>
+              <span class="star-batch-hint">按「情境→任务→行动→成果」批量提炼；跳过也可直接下一步。</span>
+            </div>
           </template>
 
-          <!-- 04 STAR 结构化 -->
+          <!-- 04 软性信息 -->
           <template v-else-if="wizard.step === 4">
             <div class="panel-head">
-              <h2>STAR 结构化</h2>
-              <el-button size="small" type="primary" :loading="starLoading" :disabled="!wizard.experiences.length" @click="runStar">
-                <Wand2 :size="14" style="margin-right: 4px" />AI 结构化为 STAR
-              </el-button>
-            </div>
-            <p class="hint">AI 按「情境 → 任务 → 行动 → 成果」为每条经历提炼，可编辑任何字段。</p>
-            <div v-if="starLoading" class="empty-block">正在结构化 {{ wizard.experiences.length }} 段经历…</div>
-            <div v-else-if="!wizard.experiences.length" class="empty-block">请先在第 3 步补充经历。</div>
-            <div v-for="(exp, i) in wizard.experiences" :key="i" class="exp-card">
-              <div class="exp-card-head"><span class="exp-no">{{ exp.company || exp.title || `经历 ${i + 1}` }}</span></div>
-              <div class="gen-form">
-                <el-form-item label="情境"><el-input v-model="exp.situation" type="textarea" :rows="2" /></el-form-item>
-                <el-form-item label="任务"><el-input v-model="exp.task" type="textarea" :rows="2" /></el-form-item>
-                <el-form-item label="行动"><el-input v-model="exp.action" type="textarea" :rows="2" /></el-form-item>
-                <el-form-item label="成果"><el-input v-model="exp.result" type="textarea" :rows="2" /></el-form-item>
-              </div>
-            </div>
-          </template>
-
-          <!-- 05 软性信息 -->
-          <template v-else-if="wizard.step === 5">
-            <div class="panel-head">
               <h2>软性信息</h2>
-              <el-button size="small" type="primary" :loading="softLoading" @click="generateSoft">
-                <Sparkles :size="14" style="margin-right: 4px" />AI 生成
-              </el-button>
+              <div class="head-actions">
+                <el-button size="small" type="primary" :loading="softLoading" @click="generateSoft">
+                  <Sparkles :size="14" style="margin-right: 4px" />AI 生成
+                </el-button>
+                <el-button
+                  size="small"
+                  :loading="softSaving"
+                  :disabled="!hasSoftInfo || softLoading"
+                  @click="saveSoftToProfile"
+                >
+                  <Save :size="14" style="margin-right: 4px" />保存到画像
+                </el-button>
+              </div>
             </div>
             <p class="hint">补充性格、职业愿景与自我评价，让简历更有温度。</p>
             <el-form label-width="92px" class="gen-form">
@@ -172,26 +274,37 @@
               <el-form-item label="不感兴趣方向"><el-input v-model="wizard.soft_info.disinterested" /></el-form-item>
               <el-form-item label="自我评价"><el-input v-model="wizard.soft_info.self_eval" type="textarea" :rows="3" /></el-form-item>
             </el-form>
+            <p class="soft-save-note" :class="{ 'is-saved': softSaved }">
+              <template v-if="softSaved">
+                已沉淀到个人画像，后续简历与模拟面试会自动复用；可在「个人画像 → 软性信息」修改。
+              </template>
+              <template v-else>
+                这里的内容仅用于本次简历；点「保存到画像」可沉淀为长期画像，下次自动带入。
+              </template>
+            </p>
           </template>
 
-          <!-- 06 证件照 -->
-          <template v-else-if="wizard.step === 6">
+          <!-- 05 证件照 -->
+          <template v-else-if="wizard.step === 5">
             <div class="panel-head"><h2>证件照</h2></div>
-            <p class="hint">上传一张清晰的证件照（支持 JPG/PNG/WEBP，建议 295×413，≤5MB），或使用占位图。</p>
+            <p class="hint">上传一张清晰的证件照（支持 JPG/PNG/WEBP，建议 295×413，≤5MB）。未上传时导出不含照片。</p>
             <div class="photo-box">
               <img v-if="photoPreview" :src="photoPreview" alt="证件照" class="photo-img" />
-              <div v-else class="photo-placeholder">占位图</div>
+              <div v-else class="photo-placeholder">暂无照片</div>
               <div>
                 <el-button type="primary" :loading="photoUploading" @click="fileInput?.click()">
-                  <Upload :size="14" style="margin-right: 4px" />上传照片
+                  <Upload :size="14" style="margin-right: 4px" />{{ photoPreview ? '重新上传' : '上传照片' }}
                 </el-button>
                 <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onPhotoChange" />
+                <p v-if="wizard.photo_id" class="hint" style="margin-top: 8px">
+                  已上传证件照，Word / HTML 导出将自动嵌入。
+                </p>
               </div>
             </div>
           </template>
 
-          <!-- 07 预览微调 -->
-          <template v-else-if="wizard.step === 7">
+          <!-- 06 预览微调 -->
+          <template v-else-if="wizard.step === 6">
             <div class="panel-head">
               <h2>预览与微调</h2>
               <el-button size="small" text type="primary" :disabled="moduleEditor.length === 0" @click="rebuildModules"><RefreshCw :size="13" style="margin-right: 3px" />按数据重建</el-button>
@@ -214,12 +327,18 @@
             <div class="panel-head"><h2>生成你的简历</h2></div>
             <p class="hint">AI 会整合前面所有信息，润色文案并生成简历；一次生成后可直接在简历库使用。</p>
 
+            <el-form label-width="88px" class="gen-form" style="margin-bottom: 14px">
+              <el-form-item label="简历标题">
+                <el-input v-model="wizard.title" :placeholder="defaultTitlePlaceholder" />
+              </el-form-item>
+            </el-form>
+
             <div class="summary-box">
               <div class="sum-row"><span>投递方向</span><b>{{ wizard.directions.join(' / ') || '未选择' }}</b></div>
               <div class="sum-row"><span>实践经历</span><b>{{ wizard.experiences.length }} 段</b></div>
               <div class="sum-row"><span>技能标签</span><b>{{ basic.skills.length }} 个</b></div>
-              <div class="sum-row"><span>自我评价</span><b>{{ wizard.soft_info.self_eval ? '已填写' : '未填写' }}</b></div>
-              <div class="sum-row"><span>证件照</span><b>{{ wizard.photo_id ? '已上传' : '占位图' }}</b></div>
+              <div class="sum-row"><span>自我评价</span><b>{{ softMerged ? '已填写' : '未填写' }}</b></div>
+              <div class="sum-row"><span>证件照</span><b>{{ wizard.photo_id ? '已上传' : '未上传（导出无照片）' }}</b></div>
             </div>
 
             <div class="page-pref">
@@ -284,20 +403,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, onMounted } from 'vue'
+import { computed, nextTick, reactive, ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Save, Sparkles,
   Compass, Wand2, Upload, RefreshCw, CircleCheck, User, Briefcase, Heart,
-  Image as ImageIcon, FileText,
+  Image as ImageIcon, FileText, House,
 } from 'lucide-vue-next'
 import AppNav from '../components/AppNav.vue'
 import {
   clearDraft, generateResume, getPhotoInfo, loadDraft, saveDraft, starStructuring, uploadPhotoFile,
-  exportResume, downloadBlob, type ExportFormat,
+  exportResume, downloadBlob, structureExperiences, generateExperiences, fetchPhotoBlob, type ExportFormat,
 } from '../api/resumeGeneration'
-import { recommendDirections, generateSoftInfo } from '../api/profile'
+import { recommendDirections, generateSoftInfo, saveSoftInfo, confirmDirections } from '../api/profile'
 import { listProfileItems } from '../api/profile'
+import type { DirectionCandidate } from '../types'
 import { useRouter } from 'vue-router'
 import type { WizardExperience, WizardGeneratePayload } from '../types'
 
@@ -306,14 +426,13 @@ const router = useRouter()
 type StepDef = { key: string; no: string; short: string; title: string; desc: string; icon: any }
 
 const STEPS: StepDef[] = [
-  { key: 'basic', no: '01', short: '基础信息', title: '认识自己', desc: '整理属于你的个人信息，可从个人知识库一键导入。', icon: User },
+  { key: 'basic', no: '01', short: '基础信息', title: '认识自己', desc: '整理属于你的个人信息，可从个人画像一键导入。', icon: User },
   { key: 'directions', no: '02', short: '画像与方向', title: '发现方向', desc: 'AI 根据你的画像，分析适合的投递方向，选 1~3 个。', icon: Compass },
-  { key: 'experience', no: '03', short: '经历补充', title: '发现方向', desc: '填写实习、项目或校园经历，也可以让 AI 帮你包装。', icon: Briefcase },
-  { key: 'star', no: '04', short: 'STAR 结构化', title: '让经历更清晰', desc: 'AI 按 STAR 法则提炼每段经历，突出亮点与成果。', icon: Wand2 },
-  { key: 'soft', no: '05', short: '软性信息', title: '看见真实的自己', desc: '补充性格、职业愿景与自我评价，让简历更有温度。', icon: Heart },
-  { key: 'photo', no: '06', short: '证件照', title: '留下你的样子', desc: '上传一张清晰的证件照，或使用占位图。', icon: ImageIcon },
-  { key: 'preview', no: '07', short: '预览微调', title: '慢慢打磨', desc: '调整模块顺序、修改文案，生成时 AI 统一润色。', icon: FileText },
-  { key: 'generate', no: '08', short: '生成与导出', title: '一份新的开始', desc: '选择篇幅，AI 整合润色并生成简历，之后可在简历库使用。', icon: Sparkles },
+  { key: 'experience', no: '03', short: '经历补充', title: '讲好你的故事', desc: '从画像导入项目/实习经历，或 AI 包装；可选 STAR 结构化。', icon: Briefcase },
+  { key: 'soft', no: '04', short: '软性信息', title: '看见真实的自己', desc: '补充性格、职业愿景与自我评价，让简历更有温度。', icon: Heart },
+  { key: 'photo', no: '05', short: '证件照', title: '留下你的样子', desc: '上传一张清晰的证件照，或使用占位图。', icon: ImageIcon },
+  { key: 'preview', no: '06', short: '预览微调', title: '慢慢打磨', desc: '调整模块顺序、修改文案，生成时 AI 统一润色。', icon: FileText },
+  { key: 'generate', no: '07', short: '生成与导出', title: '一份新的开始', desc: '选择篇幅，AI 整合润色并生成简历，之后可在简历库使用。', icon: Sparkles },
 ]
 
 const wizard = reactive({
@@ -336,11 +455,24 @@ const basic = reactive({
 })
 const skillInput = ref('')
 
-const directions = ref<{ title: string; reason: string; detail: string }[]>([])
+const directions = ref<DirectionCandidate[]>([])
 const dirLoading = ref(false)
+const dirSaving = ref(false)
 const directionError = ref('')
+/** 知识库已确认的目标岗位（进入第 02 步时优先带入） */
+const dirsFromProfile = ref<string[]>([])
 const starLoading = ref(false)
 const softLoading = ref(false)
+const softSaving = ref(false)
+const softSaved = ref(false)
+
+/** 后端软性信息条目标题 → 表单字段（与 soft_info_service.FIELD_TO_LABEL 一致） */
+const SOFT_TITLE_TO_FIELD: Record<string, 'personality' | 'vision' | 'disinterested' | 'self_eval'> = {
+  性格特点: 'personality',
+  职业愿景: 'vision',
+  '不感兴趣的方向': 'disinterested',
+  自我评价: 'self_eval',
+}
 const photoUploading = ref(false)
 const photoPreview = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -348,6 +480,37 @@ const moduleEditor = ref<{ key: string; title: string; content: string }[]>([])
 const generating = ref(false)
 const genError = ref('')
 const generated = ref<{ content: { sections: { title: string; content: string }[]; raw_text: string }; document: any } | null>(null)
+
+// 03 经历 AI
+const nlOpen = ref(false)
+const nlText = ref('')
+const structureLoading = ref(false)
+const genExpLoading = ref(false)
+const expAiError = ref('')
+const nlInputRef = ref<{ focus: () => void } | null>(null)
+
+// 从画像导入经历
+const importOpen = ref(false)
+const importLoading = ref(false)
+const importingExp = ref(false)
+const profileExperiences = ref<{
+  id: number
+  title: string
+  content: string
+  checked: boolean
+}[]>([])
+
+// STAR 可选展开
+const expandedStar = reactive<Record<number, boolean>>({})
+
+function toggleStar(i: number) {
+  expandedStar[i] = !expandedStar[i]
+}
+
+const defaultTitlePlaceholder = computed(() => defaultTitle())
+const softMerged = computed(() =>
+  !!(wizard.soft_info.self_eval || wizard.soft_info.personality || wizard.soft_info.vision),
+)
 
 const currentStep = computed(() => STEPS[wizard.step - 1])
 const canNext = computed(() => true)
@@ -369,6 +532,178 @@ function addExperience() {
   wizard.experiences.push({ exp_type: '项目', company: '', title: '', duration: '', duty: '', achievement: '', situation: '', task: '', action: '', result: '' })
   rebuildModules()
 }
+
+function toWizardExperience(raw: Partial<WizardExperience> & Record<string, unknown>): WizardExperience {
+  return {
+    exp_type: (raw.exp_type as string) || '项目',
+    company: (raw.company as string) || '',
+    title: (raw.title as string) || '',
+    duration: (raw.duration as string) || '',
+    duty: (raw.duty as string) || '',
+    achievement: (raw.achievement as string) || '',
+    situation: (raw.situation as string) || '',
+    task: (raw.task as string) || '',
+    action: (raw.action as string) || '',
+    result: (raw.result as string) || '',
+  }
+}
+
+function openNlMode(_mode: 'pack' | 'generate') {
+  importOpen.value = false
+  nlOpen.value = true
+  expAiError.value = ''
+  nextTick(() => nlInputRef.value?.focus())
+}
+
+/** 从个人画像读取 category=experience 条目 */
+async function openImportFromProfile() {
+  nlOpen.value = false
+  importOpen.value = true
+  expAiError.value = ''
+  importLoading.value = true
+  try {
+    const res = await listProfileItems('experience', 'confirmed')
+    const items = res.data || []
+    profileExperiences.value = items.map((it) => ({
+      id: it.id,
+      title: it.title || '未命名经历',
+      content: it.content || '',
+      checked: true,
+    }))
+  } catch {
+    profileExperiences.value = []
+    expAiError.value = '读取个人画像失败，请稍后重试'
+  } finally {
+    importLoading.value = false
+  }
+}
+
+/** 把勾选的画像经历转成向导经历（尽量拆字段，保留原文） */
+function applyProfileExperiences() {
+  const chosen = profileExperiences.value.filter((p) => p.checked)
+  if (!chosen.length) {
+    ElMessage.warning('请至少勾选一条经历')
+    return
+  }
+  const existingKeys = new Set(
+    wizard.experiences.map((e) => `${e.company}||${e.title}`),
+  )
+  let added = 0
+  for (const pe of chosen) {
+    const text = (pe.content || '').trim()
+    // 尝试从常见格式拆：「项目名 | 角色 | 时间」或首行做标题
+    const firstLine = text.split(/\r?\n/)[0] || pe.title
+    const parts = firstLine.split(/[|｜]/).map((s) => s.trim())
+    const company = pe.title || parts[0] || firstLine.slice(0, 40)
+    const title = parts[1] || ''
+    const duration = parts[2] || ''
+    const key = `${company}||${title}`
+    if (existingKeys.has(key)) continue
+    // 正文：去掉首行若已作标题
+    let duty = text
+    if (firstLine && text.startsWith(firstLine)) {
+      duty = text.slice(firstLine.length).replace(/^\r?\n/, '').trim()
+    }
+    if (!duty) duty = text
+    wizard.experiences.push({
+      exp_type: '项目',
+      company,
+      title,
+      duration,
+      duty,
+      achievement: '',
+      situation: '',
+      task: '',
+      action: '',
+      result: '',
+    })
+    existingKeys.add(key)
+    added++
+  }
+  if (added) {
+    ElMessage.success(`已从画像导入 ${added} 条经历，请核对后继续`)
+    importOpen.value = false
+    rebuildModules()
+  } else {
+    ElMessage.info('所选经历已存在于列表中')
+  }
+}
+
+function cancelNl() {
+  nlOpen.value = false
+  nlText.value = ''
+  expAiError.value = ''
+}
+
+async function onStructureExp() {
+  const text = nlText.value.trim()
+  if (!text) {
+    expAiError.value = '请先填写一段经历描述'
+    return
+  }
+  structureLoading.value = true
+  expAiError.value = ''
+  try {
+    const res = await structureExperiences(text, wizard.directions)
+    const items = (res.data?.items || []).map(toWizardExperience)
+    if (!items.length) {
+      expAiError.value = '未能结构化出有效经历，请补充细节后重试'
+      return
+    }
+    if (wizard.experiences.length) {
+      const replace = await ElMessageBox.confirm(
+        `已结构化出 ${items.length} 条经历，要替换现有 ${wizard.experiences.length} 条吗？`,
+        '应用结构化结果',
+        { confirmButtonText: '替换', cancelButtonText: '追加', type: 'info' },
+      ).then(() => true).catch(() => false)
+      if (replace) wizard.experiences.splice(0, wizard.experiences.length, ...items)
+      else wizard.experiences.push(...items)
+    } else {
+      wizard.experiences.push(...items)
+    }
+    rebuildModules()
+    cancelNl()
+    ElMessage.success(`已结构化 ${items.length} 条经历，请核对后继续`)
+  } catch (e: any) {
+    expAiError.value = e?.response?.data?.detail || '经历结构化失败，请重试'
+  } finally {
+    structureLoading.value = false
+  }
+}
+
+async function onAiGenerateExp() {
+  genExpLoading.value = true
+  expAiError.value = ''
+  try {
+    const res = await generateExperiences(wizard.directions, 2)
+    const items = (res.data?.items || []).map(toWizardExperience)
+    if (!items.length) {
+      expAiError.value = 'AI 未生成有效经历，可先完善个人画像后重试'
+      return
+    }
+    if (wizard.experiences.length) {
+      const replace = await ElMessageBox.confirm(
+        `已生成 ${items.length} 条经历草稿，要替换现有 ${wizard.experiences.length} 条吗？`,
+        '应用 AI 生成结果',
+        { confirmButtonText: '替换', cancelButtonText: '追加', type: 'info' },
+      ).then(() => true).catch(() => false)
+      if (replace) wizard.experiences.splice(0, wizard.experiences.length, ...items)
+      else wizard.experiences.push(...items)
+    } else {
+      wizard.experiences.push(...items)
+    }
+    rebuildModules()
+    ElMessage.success(`已生成 ${items.length} 条经历草稿，请核对修改`)
+    nextTick(() => {
+      document.querySelector('.gen-main')?.scrollTo({ top: 280, behavior: 'smooth' })
+    })
+  } catch (e: any) {
+    expAiError.value = e?.response?.data?.detail || '经历生成失败，请重试'
+  } finally {
+    genExpLoading.value = false
+  }
+}
+
 function moveExp(i: number, dir: number) {
   const j = i + dir
   if (j < 0 || j >= wizard.experiences.length) return
@@ -402,15 +737,49 @@ async function importFromKnowledge() {
         content.split('\n').filter(Boolean).forEach((line) => basic.certifications.push(line))
       } else if (it.category === 'skill') {
         basic.skills.push(content || it.title || '')
-      } else if (it.category === 'soft' && it.title === '性格特点') {
-        wizard.soft_info.personality = content
-      } else if (it.category === 'soft' && it.title === '自我评价') {
-        wizard.soft_info.self_eval = content
+      } else if (it.category === 'soft') {
+        const field = SOFT_TITLE_TO_FIELD[it.title]
+        if (field) wizard.soft_info[field] = content
+      } else if (it.category === 'target' && it.status === 'confirmed') {
+        const title = it.title
+        if (title && !wizard.directions.includes(title)) wizard.directions.push(title)
+        dirsFromProfile.value = Array.from(new Set([...dirsFromProfile.value, title]))
+        if (!directions.value.some((d) => d.title === title)) {
+          directions.value.push({ title, reason: it.content || '来自个人画像已确认方向', detail: '' })
+        }
       }
     }
-    ElMessage.success('已从知识库导入可匹配的信息')
+    if (wizard.directions.length) {
+      ElMessage.success(`已从画像导入可匹配的信息（含 ${wizard.directions.length} 个投递方向）`)
+    } else {
+      ElMessage.success('已从画像导入可匹配的信息')
+    }
   } catch {
-    ElMessage.error('导入失败，请先到个人知识库完善画像')
+    ElMessage.error('导入失败，请先到个人画像完善信息')
+  }
+}
+
+/** 从知识库加载已确认目标岗位，作为第 02 步默认候选 */
+async function loadProfileDirections() {
+  try {
+    const res = await listProfileItems('target', 'confirmed')
+    const items = res.data || []
+    dirsFromProfile.value = items.map((i) => i.title).filter(Boolean)
+    for (const it of items) {
+      if (!directions.value.some((d) => d.title === it.title)) {
+        directions.value.push({
+          title: it.title,
+          reason: it.content || '来自个人画像已确认方向',
+          detail: '',
+        })
+      }
+    }
+    // 草稿未选任何方向时，默认选中已确认的
+    if (!wizard.directions.length && dirsFromProfile.value.length) {
+      wizard.directions = [...dirsFromProfile.value.slice(0, 3)]
+    }
+  } catch {
+    // 无画像或加载失败不阻塞
   }
 }
 
@@ -419,12 +788,48 @@ async function analyzeDirections() {
   directionError.value = ''
   try {
     const res = await recommendDirections()
-    directions.value = res.data || []
+    const fresh = res.data || []
+    // 合并知识库已确认方向，避免被推荐结果覆盖丢失
+    const merged: DirectionCandidate[] = []
+    const seen = new Set<string>()
+    for (const t of dirsFromProfile.value) {
+      const hit = fresh.find((f) => f.title === t) || directions.value.find((d) => d.title === t)
+      if (hit && !seen.has(hit.title)) {
+        merged.push(hit)
+        seen.add(hit.title)
+      }
+    }
+    for (const f of fresh) {
+      if (!seen.has(f.title)) {
+        merged.push(f)
+        seen.add(f.title)
+      }
+    }
+    directions.value = merged
     wizard.directions = wizard.directions.filter((d) => directions.value.some((x) => x.title === d))
   } catch (e: any) {
     directionError.value = e?.response?.data?.detail || '方向分析失败，请重试'
   } finally {
     dirLoading.value = false
+  }
+}
+
+/** 把当前选中的方向沉淀为画像 target 条目 */
+async function saveDirectionsToProfile() {
+  if (!wizard.directions.length || dirSaving.value) return
+  dirSaving.value = true
+  try {
+    const chosen: DirectionCandidate[] = wizard.directions.map((title) => {
+      const hit = directions.value.find((d) => d.title === title)
+      return { title, reason: hit?.reason || '', detail: hit?.detail || '' }
+    })
+    const res = await confirmDirections(chosen)
+    dirsFromProfile.value = Array.from(new Set([...dirsFromProfile.value, ...wizard.directions]))
+    ElMessage.success(`已保存 ${res.data.length} 个投递方向到个人画像`)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存到画像失败，请重试')
+  } finally {
+    dirSaving.value = false
   }
 }
 
@@ -467,6 +872,40 @@ async function generateSoft() {
   }
 }
 
+/** 是否填写了任一软性信息字段 */
+const hasSoftInfo = computed(() =>
+  Object.values(wizard.soft_info).some((v) => (v || '').trim().length > 0),
+)
+
+/** 字段被改动后，撤销「已保存」提示，避免误以为改动已沉淀 */
+watch(
+  () => ({ ...wizard.soft_info }),
+  () => {
+    softSaved.value = false
+  },
+  { deep: true },
+)
+
+/** 把当前软性信息沉淀到个人画像（category=soft），供后续简历/面试跨会话复用 */
+async function saveSoftToProfile() {
+  if (!hasSoftInfo.value || softSaving.value) return
+  softSaving.value = true
+  try {
+    const res = await saveSoftInfo({
+      personality: wizard.soft_info.personality.trim(),
+      vision: wizard.soft_info.vision.trim(),
+      disinterested: wizard.soft_info.disinterested.trim(),
+      self_eval: wizard.soft_info.self_eval.trim(),
+    })
+    softSaved.value = true
+    ElMessage.success(`已保存 ${res.data.length} 项软性信息到个人画像`)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '保存到画像失败，请重试')
+  } finally {
+    softSaving.value = false
+  }
+}
+
 async function onPhotoChange(ev: Event) {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
@@ -475,7 +914,7 @@ async function onPhotoChange(ev: Event) {
   try {
     const res = await uploadPhotoFile(file)
     wizard.photo_id = res.data.id
-    photoPreview.value = `${res.data.url}?t=${Date.now()}`
+    await refreshPhotoPreview(res.data.id)
     ElMessage.success('证件照已上传')
   } catch {
     ElMessage.error('上传失败（支持 JPG/PNG/WEBP，≤5MB）')
@@ -485,43 +924,93 @@ async function onPhotoChange(ev: Event) {
   }
 }
 
-function rebuildModules() {
-  const modules = assemblePreview()
-  moduleEditor.value = modules.map((m, i) => ({ key: `${i}`, title: m.title, content: m.content }))
+async function refreshPhotoPreview(photoId: number) {
+  try {
+    const blob = await fetchPhotoBlob(photoId)
+    if (photoPreview.value.startsWith('blob:')) URL.revokeObjectURL(photoPreview.value)
+    photoPreview.value = URL.createObjectURL(blob)
+  } catch {
+    // 鉴权/网络失败时清空预览，避免裂图
+    photoPreview.value = ''
+  }
+}
+
+function defaultTitle(): string {
+  const name = (basic.name || '').trim()
+  const primary = (wizard.directions[0] || '').trim()
+  if (name && primary) return `${name}·${primary}简历`
+  if (name) return `${name}的简历`
+  if (primary) return `${primary}简历`
+  return '个人简历'
 }
 
 function assemblePreview() {
   const out: { title: string; content: string }[] = []
   const info: string[] = []
-  for (const [k, label] of [['name', '姓名'], ['email', '邮箱'], ['phone', '电话'], ['location', '所在地']] as const) {
-    const v = (wizard.basic_info[k] as string) || (basic as any)[k]
-    if (v) info.push(`${label}：${v}`)
+  for (const [k, label] of [
+    ['name', '姓名'], ['email', '邮箱'], ['phone', '电话'], ['location', '所在地'],
+    ['birthday', '出生日期'], ['gender', '性别'],
+  ] as const) {
+    const v = (basic as any)[k] as string
+    if (v && String(v).trim()) info.push(`${label}：${String(v).trim()}`)
   }
   if (info.length) out.push({ title: '基本信息', content: info.join('\n') })
   if (wizard.directions.length) out.push({ title: '求职意向', content: wizard.directions.join('，') })
-  if (basic.education.some(Boolean)) out.push({ title: '教育背景', content: basic.education.filter(Boolean).join('\n') })
-  const work: string[] = [], projects: string[] = []
+  const edu = basic.education.filter((e) => e && e.trim())
+  if (edu.length) out.push({ title: '教育背景', content: edu.join('\n') })
+
+  const work: string[] = []
+  const projects: string[] = []
   for (const e of wizard.experiences) {
-    const block = `### ${[e.company, e.title].filter(Boolean).join(' | ')}
-${[['情境', e.situation], ['任务', e.task], ['行动', e.action], ['成果', e.result]].filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`).join('\n')}`
+    const header = [e.company, e.title, e.duration].filter((x) => x && String(x).trim()).join(' | ')
+    const lines: string[] = []
+    if (header) lines.push(header)
+    const duty = (e.duty || e.action || '').trim()
+    if (duty) lines.push(`职责：${duty}`)
+    for (const [label, val] of [
+      ['情境', e.situation], ['任务', e.task], ['行动', e.action], ['成果', e.result || e.achievement],
+    ] as const) {
+      const v = (val || '').trim()
+      if (!v) continue
+      if ((label === '行动' || label === '任务') && duty && v === duty) continue
+      lines.push(`${label}：${v}`)
+    }
+    if (lines.length === 1 && (e.achievement || '').trim()) {
+      lines.push(`成果：${e.achievement.trim()}`)
+    }
+    const block = lines.join('\n').trim()
+    if (!block) continue
     if (['实习', '工作'].includes(e.exp_type)) work.push(block)
     else projects.push(block)
   }
   if (work.length) out.push({ title: '实习/工作经历', content: work.join('\n\n') })
   if (projects.length) out.push({ title: '项目经历', content: projects.join('\n\n') })
-  if (basic.skills.length) out.push({ title: '技能', content: basic.skills.join(', ') })
-  if (wizard.soft_info.self_eval) out.push({ title: '自我评价', content: wizard.soft_info.self_eval })
-  if (basic.certifications.some(Boolean)) out.push({ title: '证书/荣誉', content: basic.certifications.filter(Boolean).join('\n') })
+
+  const skills = basic.skills.filter((s) => s && s.trim())
+  if (skills.length) out.push({ title: '技能', content: skills.join('、') })
+
+  const softParts = [wizard.soft_info.self_eval, wizard.soft_info.personality, wizard.soft_info.vision]
+    .map((x) => (x || '').trim())
+    .filter((x, i, arr) => x && arr.indexOf(x) === i)
+  if (softParts.length) out.push({ title: '自我评价', content: softParts.join('\n') })
+
+  const certs = basic.certifications.filter((c) => c && c.trim())
+  if (certs.length) out.push({ title: '证书/荣誉', content: certs.join('\n') })
   return out
 }
 
+function rebuildModules() {
+  const modules = assemblePreview()
+  moduleEditor.value = modules.map((m, i) => ({ key: `${i}`, title: m.title, content: m.content }))
+}
+
 function gotoStep(step: number) {
-  wizard.step = Math.min(8, Math.max(1, step))
-  if (wizard.step === 7) rebuildModules()
+  const max = STEPS.length
+  wizard.step = Math.min(max, Math.max(1, step))
+  if (wizard.step === 6) rebuildModules()
 }
 function prevStep() { gotoStep(wizard.step - 1) }
 function nextStep() {
-  if (wizard.step === 6 && !wizard.photo_id) wizard.photo_id = 0 // 允许占位
   gotoStep(wizard.step + 1)
   void onSaveDraft()
 }
@@ -560,11 +1049,26 @@ async function onSaveDraft() {
   }
 }
 
+/** 右上角：暂存后返回功能墙 */
+async function onExitToHome() {
+  try {
+    await saveDraft(wizard.step, snapshot())
+  } catch {
+    // 暂存失败仍允许离开
+  }
+  router.push('/')
+}
+
 async function onGenerate() {
   generating.value = true
   genError.value = ''
   generated.value = null
   try {
+    // 确保预览模块齐全，并应用默认标题
+    if (!moduleEditor.value.length) rebuildModules()
+    if (!wizard.title.trim() || wizard.title === '我的新简历') {
+      wizard.title = defaultTitle()
+    }
     const payload: WizardGeneratePayload = {
       title: wizard.title,
       basic_info: {
@@ -585,6 +1089,10 @@ async function onGenerate() {
     }
     const res = await generateResume(payload)
     generated.value = res.data
+    // 用后端最终标题回填（含默认命名规则结果）
+    if (generated.value?.document?.title) {
+      wizard.title = generated.value.document.title
+    }
     await clearDraft()
     ElMessage.success('简历生成成功，已导入简历库')
   } catch (e: any) {
@@ -603,8 +1111,9 @@ const exporting = ref('')
 const exportError = ref('')
 
 function contentFromEditor(): { sections: { title: string; content: string }[]; raw_text: string } {
+  if (!moduleEditor.value.length) rebuildModules()
   const sections = moduleEditor.value.map((m) => ({ title: m.title || '模块', content: m.content || '' }))
-  const raw_text = sections.map((s) => `## ${s.title}\n${s.content}`).join('\n\n')
+  const raw_text = sections.map((s) => `${s.title}\n${s.content}`).join('\n\n')
   return { sections, raw_text }
 }
 
@@ -618,8 +1127,9 @@ async function onExport(format: ExportFormat) {
   exportError.value = ''
   try {
     const content = currentContent()
-    const blob = await exportResume(content, wizard.title, format)
-    downloadBlob(blob, `${wizard.title}.${format === 'md' ? 'md' : format}`)
+    const title = wizard.title.trim() && wizard.title !== '我的新简历' ? wizard.title : defaultTitle()
+    const blob = await exportResume(content, title, format, wizard.photo_id)
+    downloadBlob(blob, `${title}.${format === 'md' ? 'md' : format}`)
     ElMessage.success(`已导出 ${format === 'docx' ? 'Word' : format.toUpperCase()}`)
   } catch {
     exportError.value = '导出失败，请重试'
@@ -631,13 +1141,14 @@ async function onExport(format: ExportFormat) {
 async function onPrintPdf() {
   exportError.value = ''
   try {
-    const blob = await exportResume(currentContent(), wizard.title, 'html')
+    const title = wizard.title.trim() && wizard.title !== '我的新简历' ? wizard.title : defaultTitle()
+    const blob = await exportResume(currentContent(), title, 'html', wizard.photo_id)
     const url = URL.createObjectURL(blob)
     const win = window.open(url, '_blank')
     if (win) {
       setTimeout(() => win.print(), 400)
     } else {
-      downloadBlob(blob, `${wizard.title}.html`)
+      downloadBlob(blob, `${title}.html`)
     }
     setTimeout(() => URL.revokeObjectURL(url), 60000)
   } catch {
@@ -655,9 +1166,12 @@ onMounted(async () => {
         { confirmButtonText: '继续', cancelButtonText: '从头开始' },
       ).then(() => true).catch(() => false)
       if (cont) {
-        wizard.step = res.data.step || 1
+        // 旧 8 步草稿：4=独立STAR(并入03)，5~8 → 4~7
+        let step = res.data.step || 1
+        if (step >= 4) step = Math.min(STEPS.length, step - 1)
+        wizard.step = step
         restore(res.data.data)
-        if (wizard.step === 7) rebuildModules()
+        if (wizard.step === 6) rebuildModules()
       } else {
         await clearDraft()
       }
@@ -667,18 +1181,36 @@ onMounted(async () => {
     const photo = await getPhotoInfo()
     if (photo.data) {
       wizard.photo_id = photo.data.id
-      photoPreview.value = `${photo.data.url}?t=${Date.now()}`
+      await refreshPhotoPreview(photo.data.id)
     }
   } catch { /* 静默 */ }
+  // 从知识库带入已确认目标岗位（无选中时自动勾选）
+  await loadProfileDirections()
 })
 </script>
 
 <style scoped>
-.gen-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-bg-page); }
-.gen-shell { flex: 1; display: grid; grid-template-columns: minmax(260px, 360px) 1fr; max-width: 1200px; width: 100%; margin: 0 auto; }
+.gen-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-page);
+}
+.gen-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) 1fr;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
 
 .gen-narrative {
   position: relative;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-10) var(--space-8);
   border-right: var(--border-light);
   display: flex; flex-direction: column; gap: var(--space-4);
@@ -692,7 +1224,12 @@ onMounted(async () => {
   background: var(--color-accent-50); border: 1px solid var(--color-accent-200);
 }
 
-.gen-main { padding: var(--space-6) var(--space-8) var(--space-10); overflow-y: auto; }
+.gen-main {
+  min-height: 0;
+  padding: var(--space-6) var(--space-8) var(--space-10);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .step-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: var(--space-5); }
 .step-chip {
   border: 1px solid var(--color-border); background: var(--color-bg);
@@ -711,6 +1248,16 @@ onMounted(async () => {
 }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4); }
 .panel-head h2 { font-family: var(--font-display); font-size: var(--text-lg); margin: 0; color: var(--color-text-primary); }
+.head-actions { display: flex; align-items: center; gap: var(--space-2); }
+.soft-save-note {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+.soft-save-note.is-saved {
+  color: var(--color-success-600);
+}
 .hint { color: var(--color-text-secondary); font-size: var(--text-sm); line-height: 1.6; margin: 0 0 var(--space-4); }
 .gen-form { max-width: 680px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-4); }
@@ -731,6 +1278,98 @@ onMounted(async () => {
 .dir-check { position: absolute; top: 10px; right: 12px; color: var(--color-accent-600); font-weight: 700; }
 .dir-card-title { font-weight: var(--weight-semibold); color: var(--color-text-primary); }
 .dir-card-reason { margin-top: 6px; font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.5; }
+.dir-profile-note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-accent-600);
+}
+
+.exp-ai-row {
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.exp-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: var(--radius-full);
+  border: 1px solid var(--color-border); background: var(--color-bg);
+  color: var(--color-text-primary); font-size: var(--text-sm);
+  cursor: pointer; transition: all var(--duration-fast) var(--ease-default);
+}
+.exp-chip:hover:not(:disabled) {
+  border-color: var(--color-accent-400);
+  background: var(--color-accent-50);
+}
+.exp-chip.on {
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-50);
+  color: var(--color-accent-600);
+}
+.exp-chip:disabled { opacity: 0.65; cursor: not-allowed; }
+.chip-num {
+  display: inline-grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: color-mix(in srgb, var(--color-accent-600) 12%, white);
+  color: var(--color-accent-600); font-size: 11px; font-weight: 700;
+}
+.exp-nl-box {
+  border: 1px solid var(--color-border); border-radius: var(--radius-xl);
+  padding: var(--space-4); margin-bottom: var(--space-4);
+  background: var(--color-bg-elevated);
+}
+.exp-nl-actions {
+  display: flex; gap: var(--space-2); margin-top: var(--space-3);
+}
+
+.import-item {
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-light);
+}
+
+.import-item:last-of-type {
+  border-bottom: none;
+}
+
+.import-title {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.import-preview {
+  margin-left: 24px;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.star-divider {
+  margin: var(--space-3) 0 var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--color-border);
+  font-size: var(--text-xs);
+  color: var(--color-accent-600);
+  font-weight: 600;
+}
+
+.star-batch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-light);
+}
+
+.star-batch-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.err {
+  color: var(--color-danger-600); font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
+}
 
 .exp-card, .module-card {
   border: 1px solid var(--color-border); border-radius: var(--radius-xl);

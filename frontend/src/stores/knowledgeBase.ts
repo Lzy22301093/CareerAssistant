@@ -29,7 +29,7 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
     experience: '项目经历',
     skill: '专业技能',
     target: '目标岗位',
-    soft: '自我评价',
+    soft: '软性信息',
     interview_feedback: '面试反馈',
     award: '个人奖项',
     social: '社交账号',
@@ -59,25 +59,21 @@ export const useKnowledgeBaseStore = defineStore('knowledgeBase', () => {
 
   async function add(data: ProfileItemCreate) {
     const res = await createProfileItem(data)
-    await Promise.all([fetchItems(), fetchCategories()])
     return res.data
   }
 
   async function update(id: number, data: ProfileItemUpdate) {
     const res = await updateProfileItem(id, data)
-    await fetchItems()
     return res.data
   }
 
   async function setStatus(id: number, status: ProfileStatus) {
     const res = await changeProfileStatus(id, status)
-    await Promise.all([fetchItems(), fetchCategories()])
     return res.data
   }
 
   async function remove(id: number) {
     await deleteProfileItem(id)
-    await Promise.all([fetchItems(), fetchCategories()])
   }
 
   return {

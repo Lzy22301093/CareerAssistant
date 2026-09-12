@@ -95,8 +95,7 @@ async def test_open_interview(agents, sample_jd, sample_profile):
     assert result["phase"] == "opening"
     assert result["is_active"] is True
     assert result["turn_count"] == 0
-    assert "前端工程师" in result.get("current_question", "") or len(result.get("current_question", "")) > 0
-    assert len(result["conversation_history"]) == 1
+    assert len(result["current_question"]) > 0
     assert result["conversation_history"][0]["role"] == "assistant"
     agents["interviewer"].run.assert_called_once()
 
@@ -185,12 +184,12 @@ async def test_start_graph(agents, sample_jd, sample_profile):
     result = await graph.ainvoke(state)
 
     assert result["is_active"] is True
-    # open_interview 设置 phase=opening, ask_question 覆盖为 core_probing
-    assert result["phase"] == "core_probing"
+    # 首次图只跑 open_interview（内部已产出第一题）
+    assert result["phase"] == "opening"
     assert len(result["current_question"]) > 0
     assert result["turn_count"] == 0
-    # open_interview 和 ask_question 都会调用 interviewer
-    assert agents["interviewer"].run.call_count == 2
+    # 只调用一次 interviewer，避免开场双跑
+    assert agents["interviewer"].run.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -268,3 +267,31 @@ async def test_continue_graph_finish(agents, sample_jd):
 
     assert result["is_complete"] is True
     assert "final_report" in result
+
+
+def test_decide_next_wont_finish_before_max_turns():
+    from app.interview.edges import decide_next
+
+    # evaluator 想结束，但轮数未满 → 不 finish
+    assert decide_next({
+        "turn_count": 1,
+        "max_turns": 3,
+        "pending_topics": ["微服务"],
+        "next_action": "结束面试",
+    }) != "finish"
+
+    # 话题耗尽但轮数未满 → 继续出题
+    assert decide_next({
+        "turn_count": 1,
+        "max_turns": 3,
+        "pending_topics": [],
+        "next_action": "切换话题",
+    }) == "ask_question"
+
+    # 达到最大轮数才 finish
+    assert decide_next({
+        "turn_count": 3,
+        "max_turns": 3,
+        "pending_topics": ["x"],
+        "next_action": "追问",
+    }) == "finish"

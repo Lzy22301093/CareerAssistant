@@ -53,6 +53,21 @@ def test_parse_client_ping():
     assert msg.type == ClientMsgType.PING
 
 
+def test_parse_client_resume():
+    raw = json.dumps({"type": "resume", "interview_id": "abc-123"})
+    msg = parse_client_msg(raw)
+    assert msg is not None
+    assert msg.type == ClientMsgType.RESUME
+    assert msg.interview_id == "abc-123"
+
+
+def test_encode_server_started_with_interview_id():
+    msg = ServerMsg(type=ServerMsgType.STARTED, interview_id="abc-123")
+    obj = json.loads(encode_server_msg(msg))
+    assert obj["type"] == "started"
+    assert obj["interview_id"] == "abc-123"
+
+
 def test_parse_invalid_json():
     assert parse_client_msg("not json") is None
 

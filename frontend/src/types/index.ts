@@ -368,6 +368,13 @@ export interface WizardExperience {
   result: string
 }
 
+/** 03 自然语言结构化 / AI 生成的经历草稿（与 WizardExperience 前 6 字段对齐） */
+export type ExperienceDraft = Pick<
+  WizardExperience,
+  'exp_type' | 'company' | 'title' | 'duration' | 'duty' | 'achievement'
+> &
+  Partial<Pick<WizardExperience, 'situation' | 'task' | 'action' | 'result'>>
+
 export interface WizardGeneratePayload {
   title: string
   basic_info: Record<string, unknown>
@@ -440,6 +447,41 @@ export interface InterviewState {
   current_question: string
   dimension_scores: Record<string, number>
   difficulty_level: string
+}
+
+export interface InterviewHistoryItem {
+  interview_id: string
+  target_position: string
+  turn_count: number
+  completion_reason: string
+  created_at: string | null
+  overall_score: number | null
+  summary: string
+}
+
+export interface InterviewHistoryDetail {
+  interview_id: string
+  target_position: string
+  difficulty_level: string
+  turn_count: number
+  completion_reason: string
+  created_at: string | null
+  dimension_scores: Record<string, number>
+  strengths: string[]
+  weaknesses: string[]
+  conversation_history: { role: string; content: string; timestamp?: string }[]
+  final_report: Record<string, unknown>
+}
+
+/** 本地暂存的进行中语音面试（刷新恢复用） */
+export interface ActiveVoiceInterviewStore {
+  interviewId: string
+  company: string
+  position: string
+  jdText: string
+  maxTurns: number
+  chatLog: { role: 'user' | 'ai'; text: string }[]
+  updatedAt: number
 }
 
 // === 文件上传 ===

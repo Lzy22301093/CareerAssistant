@@ -14,12 +14,14 @@
         >节点图</button>
       </div>
       <el-button type="primary" @click="openWizard">
-        <Plus :size="16" />补充知识库
+        <Plus :size="16" />完善画像
       </el-button>
     </AppNav>
     <div class="kb-titlebar">
-      <div class="kb-title">个人知识库</div>
-      <p class="kb-sub">把学历、项目、技能与目标沉淀为可复用的画像</p>
+      <div class="kb-titlebar-text">
+        <div class="kb-title">个人画像</div>
+        <p class="kb-sub">基本信息、教育、实习/项目、技能与目标，沉淀为可复用的画像</p>
+      </div>
     </div>
 
     <div class="kb-body">
@@ -52,6 +54,81 @@
         </aside>
 
         <main class="kb-list">
+          <!-- 分类工具条 -->
+          <div class="cat-toolbar">
+            <div class="cat-toolbar-title">
+              {{ activeCategory ? categoryLabel : '全部画像' }}
+              <span v-if="store.items.length" class="count">{{ store.items.length }} 条</span>
+            </div>
+            <div class="cat-toolbar-actions">
+              <template v-if="activeCategory === 'target'">
+                <el-button size="small" @click="dirDialogOpen = true">
+                  <Compass :size="14" style="margin-right: 4px" />AI 推荐方向
+                </el-button>
+              </template>
+              <template v-else-if="activeCategory === 'soft'">
+                <el-button size="small" type="primary" @click="softDialogOpen = true">
+                  <Sparkles :size="14" style="margin-right: 4px" />编辑软性信息
+                </el-button>
+              </template>
+              <el-button
+                v-if="activeCategory && activeCategory !== 'soft' && activeCategory !== 'basic_info' && activeCategory !== 'education'"
+                size="small"
+                type="primary"
+                plain
+                @click="quickAddOpen = !quickAddOpen"
+              >
+                <Plus :size="14" style="margin-right: 4px" />{{ activeCategory === 'skill' || activeCategory === 'target' ? '手动添加' : '添加一条' }}
+              </el-button>
+              <el-button v-if="!activeCategory" size="small" text type="primary" @click="openWizard">
+                完善画像
+              </el-button>
+            </div>
+          </div>
+
+          <!-- 技能 / 目标岗位 快捷添加 -->
+          <div v-if="quickAddOpen && (activeCategory === 'skill' || activeCategory === 'target')" class="quick-add">
+            <el-input
+              v-model="quickAddInput"
+              :placeholder="activeCategory === 'skill' ? '输入技能后回车，如：Python、Vue' : '输入目标岗位后回车，如：后端开发工程师'"
+              clearable
+              @keyup.enter="onQuickAdd"
+            />
+            <el-button type="primary" :loading="quickAdding" @click="onQuickAdd">添加</el-button>
+          </div>
+          <div v-else-if="quickAddOpen && activeCategory && activeCategory !== 'soft' && activeCategory !== 'basic_info' && activeCategory !== 'education'" class="quick-add generic">
+            <el-input v-model="genericTitle" placeholder="标题（必填）" style="flex: 1; min-width: 160px" />
+            <el-input
+              v-model="genericContent"
+              type="textarea"
+              :rows="2"
+              placeholder="内容（可选）"
+              style="flex: 2; min-width: 200px"
+            />
+            <el-button type="primary" :loading="quickAdding" @click="onGenericAdd">添加</el-button>
+          </div>
+
+          <!-- 技能标签流（技能分类下始终显示） -->
+          <div v-if="activeCategory === 'skill' && skillTags.length" class="tag-flow">
+            <el-tag
+              v-for="s in skillTags"
+              :key="s.id"
+              closable
+              size="large"
+              @close="removeSkill(s)"
+            >{{ s.title }}</el-tag>
+          </div>
+          <div v-if="activeCategory === 'target' && targetTags.length" class="tag-flow">
+            <el-tag
+              v-for="t in targetTags"
+              :key="t.id"
+              closable
+              size="large"
+              type="success"
+              @close="removeTarget(t)"
+            >{{ t.title }}</el-tag>
+          </div>
+
           <!-- loading -->
           <SkeletonLoader v-if="store.loading" variant="card" :lines="4" />
 
@@ -65,11 +142,24 @@
           <div v-else-if="!store.items.length" class="empty">
             <Inbox :size="40" class="empty-icon" />
             <p class="empty-title">暂无{{ activeCategory ? categoryLabel : '' }}画像条目</p>
-            <p class="empty-sub">点击「补充知识库」用分阶段表单完善你的个人画像，或从简历 / 面试报告导入</p>
-            <el-button type="primary" plain @click="openWizard">补充知识库</el-button>
+            <p class="empty-sub">
+              {{ emptyHint }}
+            </p>
+            <el-button v-if="activeCategory === 'soft'" type="primary" @click="softDialogOpen = true">
+              编辑软性信息
+            </el-button>
+            <el-button v-else-if="activeCategory === 'target'" type="primary" @click="dirDialogOpen = true">
+              AI 推荐方向
+            </el-button>
+            <el-button
+              v-else-if="activeCategory && activeCategory !== 'basic_info' && activeCategory !== 'education'"
+              type="primary"
+              @click="quickAddOpen = true"
+            >添加一条</el-button>
+            <el-button v-else type="primary" plain @click="openWizard">完善画像</el-button>
           </div>
 
-          <!-- data -->
+          <!-- data（技能/目标已有标签流时卡片可省略重复展示，仍保留可点编辑） -->
           <div v-else class="cards">
             <div
               v-for="item in store.items"
@@ -109,8 +199,20 @@
         <div class="d-title">{{ selected.title }}</div>
         <el-tag size="small" :type="statusType(selected.status)">{{ statusLabel(selected.status) }}</el-tag>
 
+        <div class="field-label">标题</div>
+        <el-input v-model="editTitle" :disabled="editSaving" />
+
         <div class="field-label">内容</div>
-        <p class="d-content">{{ selected.content || '暂无内容' }}</p>
+        <el-input
+          v-model="editContent"
+          type="textarea"
+          :rows="5"
+          :disabled="editSaving"
+          placeholder="补充或修改这条画像的正文"
+        />
+        <div class="edit-actions">
+          <el-button type="primary" size="small" :loading="editSaving" @click="saveEdit">保存修改</el-button>
+        </div>
 
         <div class="field-label">证据来源</div>
         <div v-if="selected.evidences.length" class="evidences">
@@ -132,19 +234,27 @@
       </template>
     </el-drawer>
 
-    <!-- 补充知识库：分阶段结构化向导 -->
+    <!-- 完善画像：分阶段结构化向导 -->
     <ProfileFormWizard v-model="wizardOpen" @saved="onWizardSaved" />
+
+    <!-- 软性信息：AI 生成 + 保存到画像 -->
+    <SoftInfoDialog v-model="softDialogOpen" @saved="onSoftSaved" />
+
+    <!-- 投递方向：AI 推荐 + 保存到画像 -->
+    <DirectionDialog v-model="dirDialogOpen" @saved="onDirSaved" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { Plus, Inbox } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import { Plus, Inbox, Sparkles, Compass } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeBaseStore } from '../stores/knowledgeBase'
 import AppNav from '../components/AppNav.vue'
 import KnowledgeNodeGraph from '../components/KnowledgeNodeGraph.vue'
 import ProfileFormWizard from '../components/ProfileFormWizard.vue'
+import SoftInfoDialog from '../components/SoftInfoDialog.vue'
+import DirectionDialog from '../components/DirectionDialog.vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { getPhotoInfo } from '../api/resumeGeneration'
 import type { ProfileCategory, ProfileItem, ProfileStatus } from '../types'
@@ -157,7 +267,21 @@ const activeStatus = ref<ProfileStatus | ''>('')
 const selected = ref<ProfileItem | null>(null)
 const detailOpen = ref(false)
 const wizardOpen = ref(false)
+const softDialogOpen = ref(false)
+const dirDialogOpen = ref(false)
 const avatarUrl = ref('')
+
+// 详情编辑
+const editTitle = ref('')
+const editContent = ref('')
+const editSaving = ref(false)
+
+// 分类快捷添加
+const quickAddOpen = ref(false)
+const quickAddInput = ref('')
+const quickAdding = ref(false)
+const genericTitle = ref('')
+const genericContent = ref('')
 
 const categoryLabel = computed(() =>
   activeCategory.value ? store.CATEGORY_LABELS[activeCategory.value] : '',
@@ -175,6 +299,33 @@ const categoryOptions = computed(() =>
   })),
 )
 
+const skillTags = computed(() =>
+  activeCategory.value === 'skill'
+    ? store.items.filter((i) => i.category === 'skill' && i.status !== 'archived')
+    : [],
+)
+const targetTags = computed(() =>
+  activeCategory.value === 'target'
+    ? store.items.filter((i) => i.category === 'target' && i.status !== 'archived')
+    : [],
+)
+
+const emptyHint = computed(() => {
+  if (activeCategory.value === 'skill') return '添加你掌握的技能，简历生成与岗位匹配会自动复用'
+  if (activeCategory.value === 'target') return '手动添加目标岗位，或用 AI 基于画像推荐方向'
+  if (activeCategory.value === 'soft') return '填写性格、愿景与自我评价，可 AI 辅助生成'
+  if (activeCategory.value === 'experience') return '补充项目/实习经历，便于包装简历'
+  if (activeCategory.value === 'interview_feedback') return '记录面试反馈，反哺长期画像'
+  return '点击「完善画像」用分阶段表单填写，或在分类里添加条目'
+})
+
+watch(activeCategory, () => {
+  quickAddOpen.value = false
+  quickAddInput.value = ''
+  genericTitle.value = ''
+  genericContent.value = ''
+})
+
 onMounted(async () => {
   await store.fetchCategories()
   await reloadItems()
@@ -183,8 +334,16 @@ onMounted(async () => {
 
 async function loadAvatar() {
   try {
-    const res = await getPhotoInfo()
-    avatarUrl.value = res.data ? `${res.data.url}?t=${Date.now()}` : ''
+    // 头像接口需鉴权，用 blob 避免 img 裂图
+    const { fetchPhotoBlob } = await import('../api/resumeGeneration')
+    const info = await getPhotoInfo()
+    if (info.data?.id) {
+      const blob = await fetchPhotoBlob(info.data.id)
+      if (avatarUrl.value.startsWith('blob:')) URL.revokeObjectURL(avatarUrl.value)
+      avatarUrl.value = URL.createObjectURL(blob)
+    } else {
+      avatarUrl.value = ''
+    }
   } catch {
     avatarUrl.value = ''
   }
@@ -192,6 +351,10 @@ async function loadAvatar() {
 
 async function reloadItems() {
   await store.fetchItems(activeCategory.value || undefined, activeStatus.value || undefined)
+}
+
+async function refreshAll() {
+  await Promise.all([store.fetchCategories(), reloadItems()])
 }
 
 function selectCategory(cat: ProfileCategory | '') {
@@ -215,13 +378,39 @@ function onGraphSelect(cat: string) {
 
 function selectItem(item: ProfileItem) {
   selected.value = item
+  editTitle.value = item.title
+  editContent.value = item.content || ''
   detailOpen.value = true
+}
+
+async function saveEdit() {
+  if (!selected.value) return
+  const title = editTitle.value.trim()
+  if (!title) {
+    ElMessage.warning('标题不能为空')
+    return
+  }
+  editSaving.value = true
+  try {
+    const updated = await store.update(selected.value.id, {
+      title,
+      content: editContent.value,
+    })
+    selected.value = { ...selected.value, ...updated }
+    await refreshAll()
+    ElMessage.success('已保存')
+  } catch {
+    ElMessage.error('保存失败，请重试')
+  } finally {
+    editSaving.value = false
+  }
 }
 
 async function changeStatus(status: ProfileStatus) {
   if (!selected.value) return
   await store.setStatus(selected.value.id, status)
   selected.value = { ...selected.value, status }
+  await refreshAll()
   ElMessage.success('状态已更新')
 }
 
@@ -234,13 +423,88 @@ async function removeItem() {
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
     )
   } catch {
-    // 用户取消
     return
   }
   await store.remove(selected.value.id)
+  await refreshAll()
   detailOpen.value = false
   selected.value = null
   ElMessage.success('已删除')
+}
+
+async function onQuickAdd() {
+  const title = quickAddInput.value.trim()
+  if (!title) return
+  if (!activeCategory.value) return
+  // 技能/岗位：一技能/一岗位一条，title 即名称
+  const exists = store.items.some((i) => i.title === title)
+  if (exists) {
+    ElMessage.warning(`「${title}」已存在`)
+    return
+  }
+  quickAdding.value = true
+  try {
+    await store.add({
+      category: activeCategory.value,
+      title,
+      content: '',
+      status: 'confirmed',
+      item_type: 'fact',
+    })
+    quickAddInput.value = ''
+    await refreshAll()
+    ElMessage.success('已添加')
+  } catch {
+    ElMessage.error('添加失败')
+  } finally {
+    quickAdding.value = false
+  }
+}
+
+async function onGenericAdd() {
+  const title = genericTitle.value.trim()
+  if (!title || !activeCategory.value) {
+    ElMessage.warning('请填写标题')
+    return
+  }
+  quickAdding.value = true
+  try {
+    await store.add({
+      category: activeCategory.value,
+      title,
+      content: genericContent.value.trim(),
+      status: 'confirmed',
+      item_type: 'fact',
+    })
+    genericTitle.value = ''
+    genericContent.value = ''
+    await refreshAll()
+    ElMessage.success('已添加')
+  } catch {
+    ElMessage.error('添加失败')
+  } finally {
+    quickAdding.value = false
+  }
+}
+
+async function removeSkill(item: ProfileItem) {
+  try {
+    await ElMessageBox.confirm(`移除技能「${item.title}」？`, '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  await store.remove(item.id)
+  await refreshAll()
+}
+
+async function removeTarget(item: ProfileItem) {
+  try {
+    await ElMessageBox.confirm(`移除目标岗位「${item.title}」？`, '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  await store.remove(item.id)
+  await refreshAll()
 }
 
 function openWizard() {
@@ -248,8 +512,18 @@ function openWizard() {
 }
 
 async function onWizardSaved() {
-  await Promise.all([store.fetchCategories(), reloadItems()])
+  await refreshAll()
   await loadAvatar()
+}
+
+async function onSoftSaved() {
+  if (!activeCategory.value) activeCategory.value = 'soft'
+  await refreshAll()
+}
+
+async function onDirSaved() {
+  if (!activeCategory.value) activeCategory.value = 'target'
+  await refreshAll()
 }
 
 function categoryOf(item: ProfileItem) {
@@ -275,9 +549,25 @@ function sourceLabel(t: string) {
   background: var(--color-bg-page);
 }
 .kb-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
   padding: var(--space-6) var(--space-8) var(--space-4);
   border-bottom: var(--border-light);
   background: color-mix(in srgb, var(--color-bg) 92%, white);
+}
+.kb-titlebar-text {
+  min-width: 0;
+}
+.btn-icon {
+  margin-right: 5px;
+}
+.kb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
 }
 .kb-title {
   font-family: var(--font-display);
@@ -398,6 +688,55 @@ function sourceLabel(t: string) {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.cat-toolbar-title {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+.cat-toolbar-title .count {
+  margin-left: 8px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  color: var(--color-text-tertiary);
+}
+.cat-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.quick-add {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+}
+.quick-add.generic {
+  flex-wrap: wrap;
+}
+.tag-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.edit-actions {
+  margin-top: var(--space-2);
 }
 
 /* 空态 & 错误态（token 化） */

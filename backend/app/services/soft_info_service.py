@@ -56,7 +56,7 @@ class SoftInfoService:
         """基于已确认画像生成软性信息建议。"""
         profile_ctx = build_profile_context(db, user_id)
         if not profile_ctx:
-            raise SoftInfoError("暂无已确认画像，请先到个人知识库完善并确认画像条目")
+            raise SoftInfoError("暂无已确认画像，请先到个人画像完善并确认条目")
 
         from app.llm.structured import ainvoke_json_with_schema
 
