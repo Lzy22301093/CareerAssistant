@@ -107,6 +107,30 @@ async def test_agent_parse_valid_json(db_session: Session, section_row):
     assert output.candidates[0].approach == "突出主导性与结果"
 
 
+def test_agent_messages_use_role_enum_and_provider_can_convert():
+    """回归：role 必须是 Role 枚举，OpenAIProvider 才能安全调用 .value。"""
+    from app.llm.base import Role
+    from app.llm.openai_provider import OpenAIProvider
+
+    agent = SectionRewriterAgent(FakeLLM("{}"))
+    messages = agent.build_messages(
+        section_title="项目经历",
+        section_text="负责检索",
+        user_instruction="更突出",
+    )
+    assert all(isinstance(m.role, Role) for m in messages)
+    provider = OpenAIProvider(api_key="test-key", base_url="http://localhost")
+    converted = provider._convert_messages(messages)
+    assert converted[0]["role"] == "system"
+    assert converted[1]["role"] == "user"
+
+    # 兼容误传纯 str（历史数据/外部构造）
+    from app.llm.base import Message
+
+    raw = provider._convert_messages([Message(role="user", content="hi")])  # type: ignore[arg-type]
+    assert raw[0]["role"] == "user"
+
+
 async def test_generate_candidates_clean(db_session: Session, section_row):
     svc = SectionRewriteService(FakeLLM(_valid_llm_payload(with_fabrication=False)))
     result = await svc.generate_candidates(db_session, 1, section_row.id, "更突出")

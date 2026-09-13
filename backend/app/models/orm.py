@@ -126,6 +126,24 @@ class ResumeDocument(Base):
         return f"<ResumeDocument(id={self.id}, title={self.title!r}, user_id={self.user_id})>"
 
 
+class ResumeSourceFile(Base):
+    """上传原件（P0）—— 供 Word 保版导出使用；不提供独立下载接口。"""
+    __tablename__ = "resume_source_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    document_id: Mapped[int] = mapped_column(Integer, ForeignKey("resume_documents.id"), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ResumeSourceFile(id={self.id}, document_id={self.document_id}, filename={self.filename!r})>"
+
+
 class ResumeVersion(Base):
     """Resume version table for tracking resume iterations.
 

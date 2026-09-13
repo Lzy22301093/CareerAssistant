@@ -185,6 +185,22 @@ def test_update_section_content_and_bounding_box(db_session: Session):
         svc.update_section(db_session, 1, section.id, ResumeSectionUpdate(section_type="bogus"))
 
 
+def test_clear_section_bounding_box(db_session: Session):
+    """显式 bounding_box=null 清除选框；未传字段时不影响。"""
+    svc = ResumeLibraryService()
+    doc = _create_doc(svc, db_session)
+    version = svc.add_version(db_session, 1, doc.id, ResumeVersionCreate(content=CONTENT_V1))
+    section = version.sections[3]
+    box = {"x": 1, "y": 2, "width": 3, "height": 4, "page": 1}
+    svc.update_section(db_session, 1, section.id, ResumeSectionUpdate(bounding_box=box))
+    # 不传 bounding_box：不应被清掉
+    untouched = svc.update_section(db_session, 1, section.id, ResumeSectionUpdate(content="仍保留选框"))
+    assert untouched.bounding_box and json.loads(untouched.bounding_box) == box
+    # 显式 null：清除
+    cleared = svc.update_section(db_session, 1, section.id, ResumeSectionUpdate(bounding_box=None))
+    assert cleared.bounding_box is None
+
+
 def test_import_from_session(db_session: Session):
     svc = ResumeLibraryService()
     db_session.add(AnalysisSession(session_id="sess-12345678", user_id=1, stage="completed"))

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from app.agents.base import BaseAgent
-from app.llm.base import Message
+from app.llm.base import Message, Role
 from app.tools.context import compact_jd, compact_profile
 
 
@@ -57,7 +57,10 @@ class SectionRewriterAgent(BaseAgent):
         if jd_analysis:
             parts.append(f"\n【目标岗位 JD 分析】\n{json.dumps(compact_jd(jd_analysis), ensure_ascii=False)}")
         parts.append(f"\n【用户指令】\n{user_instruction or '优化这个区域的表达与量化'}")
-        return [Message(role="system", content="\n".join(parts)), Message(role="user", content="请输出改写候选 JSON。")]
+        return [
+            Message(role=Role.SYSTEM, content="\n".join(parts)),
+            Message(role=Role.USER, content="请输出改写候选 JSON。"),
+        ]
 
     def parse_response(self, content: str) -> dict:
         parsed = self.extract_json(content)

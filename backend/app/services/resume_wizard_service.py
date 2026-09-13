@@ -62,6 +62,7 @@ POLISH_SYSTEM_PROMPT = (
     "你是专业中文简历润色助手。请润色给定模块正文：统一语感、表达更专业有力、"
     "在不改变事实与条目数量的前提下改善措辞。\n"
     "禁止使用 Markdown 语法（不要 #、**、- 列表符号），保持纯文本与原有换行结构。\n"
+    "硬性约束：输出不得超过原文 1.15 倍长度；自我评价/个人优势不超过 120 字；禁止捏造事实。\n"
     "只输出 JSON：{\"content\":\"润色后的纯文本\"}，不要输出标题，不要增删模块。"
 )
 
@@ -338,12 +339,7 @@ class ResumeWizardService:
         req: WizardGenerateRequest,
         llm: Any,
     ) -> tuple[dict[str, Any], Any | None, Any | None]:
-        """组装（可选润色）向导内容，必要时导入简历库。
-
-        Returns:
-            (content, document, version) —— content 为 ResumeContent 形态字典。
-        """
-        # 标题：空/默认占位时用「姓名·方向简历」
+        """按模板组装（可选润色）向导内容，必要时导入简历库。"""
         title = (req.title or "").strip()
         if not title or title in {"我的新简历", "我的简历", "简历"}:
             title = self.default_resume_title(
@@ -352,11 +348,38 @@ class ResumeWizardService:
             )
             req = req.model_copy(update={"title": title})
 
-        content = self._assemble_content(req)
+        from app.services.resume_template import assemble_with_template
+
+        assembled = assemble_with_template(
+            basic=req.basic_info or {},
+            directions=req.directions or [],
+            educations=list(req.educations or []),
+            skills=list(req.skills or []),
+            internships=list(req.internships or []),
+            projects=list(req.projects or []),
+            experiences=list(req.experiences or []),
+            soft=req.soft_info or {},
+            template_key=req.template,
+            page_preference=req.page_preference,
+        )
+        content = assembled.to_content()
+        if req.module_order:
+            order = [t for t in req.module_order if t]
+            content["sections"] = sorted(
+                content["sections"],
+                key=lambda s: (
+                    order.index(s["title"]) if s["title"] in order else len(order),
+                    s["title"],
+                ),
+            )
+            content["raw_text"] = "\n\n".join(
+                f"{s['title']}\n{s['content']}" for s in content["sections"]
+            )
+
         if req.polish:
             try:
                 content = await self._polish_content(content, llm)
-            except Exception as e:  # 润色失败不阻塞生成，回退原内容
+            except Exception as e:
                 logger.warning(f"[Wizard] 润色失败，使用原始组装内容: {e}")
 
         doc = version = None
@@ -540,8 +563,9 @@ class ResumeWizardService:
         return "\n".join(lines).strip()
 
     async def _polish_content(self, content: dict[str, Any], llm: Any) -> dict[str, Any]:
-        """逐模块润色正文：模块数、标题、顺序与原组装结果完全一致。"""
+        """逐模块润色：禁止扩写；自我评价/个人优势硬截断。"""
         from app.llm.structured import ainvoke_json_with_schema
+        from app.services.resume_template import clamp_text
         from pydantic import BaseModel, Field
 
         class PolishOne(BaseModel):
@@ -552,7 +576,6 @@ class ResumeWizardService:
             title = str(sec.get("title") or "").strip()
             body = str(sec.get("content") or "")
             if not body.strip() or title == "基本信息":
-                # 基本信息为结构化字段，不交给 LLM 改写
                 polished_sections.append({"title": title, "content": body})
                 continue
             try:
@@ -562,11 +585,19 @@ class ResumeWizardService:
                     user_content=f"模块标题：{title}\n原始正文：\n{body}",
                     schema=PolishOne,
                     max_attempts=2,
-                    temperature=0.4,
-                    max_tokens=1536,
+                    temperature=0.3,
+                    max_tokens=1024,
                 )
                 new_body = (result.content or "").strip()
-                polished_sections.append({"title": title, "content": new_body or body})
+                if not new_body:
+                    new_body = body
+                # 长度钳制：不超过原文 1.15 倍
+                max_len = max(len(body), 20) * 115 // 100
+                if len(new_body) > max_len:
+                    new_body = clamp_text(new_body, max_len)
+                if title in ("自我评价", "个人优势"):
+                    new_body = clamp_text(new_body, 120)
+                polished_sections.append({"title": title, "content": new_body})
             except Exception as e:
                 logger.warning(f"[Wizard] 模块「{title}」润色失败，保留原文: {e}")
                 polished_sections.append({"title": title, "content": body})

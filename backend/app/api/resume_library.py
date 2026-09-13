@@ -25,6 +25,7 @@ from app.models.schemas import (
     ResumeSectionUpdate,
     ResumeVersionCreate,
     ResumeVersionOut,
+    ResumeLayoutExportRequest,
     SectionAdoptRequest,
     SectionRewriteRequest,
     SessionImportRequest,
@@ -32,6 +33,7 @@ from app.models.schemas import (
 )
 from app.services.resume_library_service import ResumeLibraryError, ResumeLibraryService
 from app.services.section_rewrite_service import SectionRewriteError, SectionRewriteService
+from app.services.resume_docx_layout import DocxLayoutError, DocxLayoutService, ResumeSourceFileService
 
 router = APIRouter()
 service = ResumeLibraryService()
@@ -355,3 +357,53 @@ async def import_upload(
     except ResumeLibraryError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _serialize_document(doc, with_detail=True)
+
+
+@router.get("/{doc_id}/has-layout-source")
+async def has_layout_source(
+    doc_id: int,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """是否有可用于保排版导出的 Word 原件。"""
+    svc = ResumeSourceFileService()
+    src = svc.get_for_document(db, user["id"], doc_id)
+    return {
+        "has_source": src is not None,
+        "is_docx": svc.is_docx(src),
+        "filename": src.filename if src else None,
+    }
+
+
+@router.post("/{doc_id}/export-layout")
+async def export_layout_preserve(
+    doc_id: int,
+    data: ResumeLayoutExportRequest | None = None,
+    user: dict = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """保排版导出 Word：基于上传原件替换区域文本。失败 422，前端提示改用统一模板。"""
+    from fastapi.responses import Response
+
+    version_id = data.version_id if data else None
+    try:
+        blob = DocxLayoutService().export_preserve(db, user["id"], doc_id, version_id)
+    except DocxLayoutError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ResumeLibraryError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).exception(f"[ExportLayout] doc={doc_id} 失败")
+        raise HTTPException(status_code=502, detail=f"保排版导出失败: {e}")
+
+    filename = f"resume_{doc_id}_layout.docx"
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Export-Mode": "preserve",
+        },
+    )

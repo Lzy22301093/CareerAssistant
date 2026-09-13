@@ -164,14 +164,43 @@ async def test_star_empty_returns_empty(db_session: Session):
 async def test_generate_assemble_no_polish(db_session: Session):
     req = WizardGenerateRequest(
         title="我的新简历",
-        basic_info={"name": "张三", "education": ["北京大学 本科"], "certifications": ["CET-6"], "skills": ["Python"]},
+        basic_info={"name": "张三", "certifications": ["CET-6"]},
         directions=["后端开发工程师"],
-        experiences=[
-            StarResultItem(
-                exp_type="实习", company="A公司", title="后端实习生", duration="2024.06-2024.09",
-                situation="s", task="t", action="负责接口", result="延迟降低 30%",
-                duty="负责接口", achievement="延迟降低 30%",
-            )
+        educations=[
+            {
+                "school": "北京大学",
+                "degree": "本科",
+                "major": "软件工程",
+                "start": "2022-09",
+                "end": "2026-06",
+                "gpa": "3.8/4.0",
+            }
+        ],
+        skills=[{"name": "Python", "level": "掌握"}],
+        internships=[
+            {
+                "company": "A公司",
+                "title": "后端实习生",
+                "start": "2024-06",
+                "end": "2024-09",
+                "duty": "负责接口",
+                "achievement": "延迟降低 30%",
+                "situation": "s",
+                "task": "t",
+                "action": "负责接口",
+                "result": "延迟降低 30%",
+            }
+        ],
+        projects=[
+            {
+                "company": "校园二手平台",
+                "title": "后端负责人",
+                "start": "2023-09",
+                "current": True,
+                "tech_stack": "FastAPI",
+                "duty": "设计并实现交易接口",
+                "achievement": "支撑 2000+ 用户",
+            }
         ],
         soft_info={"personality": "踏实", "self_eval": "认真负责", "disinterested": "不写进简历"},
         polish=False,
@@ -181,16 +210,58 @@ async def test_generate_assemble_no_polish(db_session: Session):
     titles = [s["title"] for s in content["sections"]]
     assert titles[0] == "基本信息"
     assert "求职意向" in titles
+    assert "教育背景" in titles
     assert "实习/工作经历" in titles
-    assert "技能" in titles and "自我评价" in titles
+    assert "项目经历" in titles
+    assert "技能" in titles
+    # 默认校招模板标题为「个人优势」
+    assert "个人优势" in titles
     assert "软性信息" not in titles
-    # 软性信息并入自我评价
-    self_eval = next(s for s in content["sections"] if s["title"] == "自我评价")
-    assert "认真负责" in self_eval["content"] and "踏实" in self_eval["content"]
-    assert "不写进简历" not in self_eval["content"]
+    summary = next(s for s in content["sections"] if s["title"] == "个人优势")
+    assert "认真负责" in summary["content"] and "踏实" in summary["content"]
+    assert "不写进简历" not in summary["content"]
+    edu = next(s for s in content["sections"] if s["title"] == "教育背景")
+    assert "北京大学" in edu["content"] and "本科" in edu["content"]
+    assert "GPA 3.8/4.0" in edu["content"]
+    assert "2022.09–2026.06" in edu["content"]
+    proj = next(s for s in content["sections"] if s["title"] == "项目经历")
+    assert "至今" in proj["content"] and "FastAPI" in proj["content"]
+    skills = next(s for s in content["sections"] if s["title"] == "技能")
+    assert "Python（掌握）" in skills["content"]
     # 无 Markdown 残留
     assert "###" not in content["raw_text"] and "- 情境" not in content["raw_text"]
-    assert "2024.06-2024.09" in content["raw_text"]
+    assert "延迟降低 30%" in content["raw_text"]
+
+
+def test_generate_legacy_experiences_split():
+    """旧版 experiences 按 exp_type 分流到实习/项目。"""
+    from app.services.resume_template import assemble_with_template
+
+    assembled = assemble_with_template(
+        basic={"name": "张三"},
+        directions=["后端"],
+        soft={},
+        experiences=[
+            type("E", (), {"exp_type": "实习", "company": "B司", "title": "实习生", "duration": "2024.01-2024.03",
+                           "duty": "写接口", "achievement": "上线", "situation": "", "task": "", "action": "", "result": ""})(),
+            type("E", (), {"exp_type": "项目", "company": "X项目", "title": "成员", "duration": "2023.01-2023.03",
+                           "duty": "写前端", "achievement": "完成功能", "situation": "", "task": "", "action": "", "result": ""})(),
+        ],
+        template_key="general",
+    )
+    titles = [s["title"] for s in assembled.sections]
+    assert "实习/工作经历" in titles and "项目经历" in titles
+
+
+def test_format_period_and_education_entry():
+    from app.services.resume_template import format_education_entry, format_period
+
+    assert format_period("2022-09", "2026-06") == "2022.09–2026.06"
+    assert format_period("2022-09", "", True) == "2022.09–至今"
+    line = format_education_entry(
+        {"school": "北大", "degree": "本科", "major": "CS", "start": "2020-09", "end": "2024-06", "gpa": "3.9", "current": False}
+    )
+    assert "北大" in line and "3.9" in line and "2020.09–2024.06" in line
 
 
 def test_default_resume_title():

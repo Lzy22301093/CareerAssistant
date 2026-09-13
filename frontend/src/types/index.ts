@@ -368,7 +368,43 @@ export interface WizardExperience {
   result: string
 }
 
-/** 03 自然语言结构化 / AI 生成的经历草稿（与 WizardExperience 前 6 字段对齐） */
+/** 02 教育经历（结构化） */
+export interface WizardEducation {
+  school: string
+  degree: string
+  major: string
+  start: string
+  end: string
+  current: boolean
+  gpa: string
+  rank: string
+  courses: string
+}
+
+/** 03 专业技能 */
+export interface WizardSkill {
+  name: string
+  level: string
+}
+
+/** 04 实习 / 05 项目 统一经历条目 */
+export interface WizardExpEntry {
+  company: string
+  title: string
+  start: string
+  end: string
+  current: boolean
+  duration: string
+  tech_stack: string
+  duty: string
+  achievement: string
+  situation: string
+  task: string
+  action: string
+  result: string
+}
+
+/** AI 结构化/生成经历草稿 */
 export type ExperienceDraft = Pick<
   WizardExperience,
   'exp_type' | 'company' | 'title' | 'duration' | 'duty' | 'achievement'
@@ -379,13 +415,19 @@ export interface WizardGeneratePayload {
   title: string
   basic_info: Record<string, unknown>
   directions: string[]
-  experiences: WizardExperience[]
+  educations: WizardEducation[]
+  skills: WizardSkill[]
+  internships: WizardExpEntry[]
+  projects: WizardExpEntry[]
+  /** 兼容旧版；新流程优先 internships/projects */
+  experiences?: WizardExperience[]
   soft_info: Record<string, unknown>
   photo_id: number | null
   module_order: string[]
   page_preference: 'one_page' | 'two_pages'
   polish: boolean
   import_to_library: boolean
+  template?: string
 }
 
 export interface WizardGenerateResult {

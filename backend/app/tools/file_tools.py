@@ -143,14 +143,17 @@ class FileParserTool(Tool):
         from docx import Document
 
         doc = Document(str(path))
-        text_parts = [p.text for p in doc.paragraphs if p.text.strip()]
-        logger.info(f"[FileParser] DOCX 解析完成: {len(text_parts)} 个段落, 文件: {path.name}")
-        result = "\n\n".join(text_parts)
+        result = extract_docx_text(doc)
+        logger.info(f"[FileParser] DOCX 解析完成: {len(result)} 字符, 文件: {path.name}")
         if not result:
-            raise ValueError(f"DOCX 文件未提取到任何文本内容")
+            raise ValueError(
+                "DOCX 文件未提取到任何文本内容。可能原因：1) 纯图片/扫描简历 2) 文件损坏 3) 内容在旧版 .doc（请另存为 .docx）"
+            )
 
         # 基础文本清洗
         result = self._clean_text(result)
+        if not result:
+            raise ValueError("DOCX 提取到的文本在清洗后为空（可能全是图片或特殊对象）")
         return result
 
     def _parse_docx_bytes(self, data: bytes) -> str:
@@ -158,14 +161,17 @@ class FileParserTool(Tool):
         from docx import Document
 
         doc = Document(io.BytesIO(data))
-        text_parts = [p.text for p in doc.paragraphs if p.text.strip()]
-        logger.info(f"[FileParser] DOCX 字节数据解析完成: {len(text_parts)} 个段落")
-        result = "\n\n".join(text_parts)
+        result = extract_docx_text(doc)
+        logger.info(f"[FileParser] DOCX 字节数据解析完成: {len(result)} 字符")
         if not result:
-            raise ValueError(f"DOCX 文件未提取到任何文本内容")
+            raise ValueError(
+                "DOCX 文件未提取到任何文本内容。可能原因：1) 纯图片/扫描简历 2) 文件损坏 3) 内容在旧版 .doc（请另存为 .docx）"
+            )
 
         # 基础文本清洗
         result = self._clean_text(result)
+        if not result:
+            raise ValueError("DOCX 提取到的文本在清洗后为空（可能全是图片或特殊对象）")
         return result
 
     def _parse_text(self, path: Path) -> str:
@@ -179,19 +185,100 @@ class FileParserTool(Tool):
         return base64.b64decode(content)
 
     def _clean_text(self, text: str) -> str:
-        """基础文本清洗，去除 PDF 解析产生的格式噪音。"""
+        """基础文本清洗：去空白噪音，**保留中文标点与常用符号**。"""
         # 统一换行符
-        text = re.sub(r"\r\n", "\n", text)
+        text = re.sub(r"\r\n?", "\n", text)
         # 去除多余空行（保留最多两个连续换行）
         text = re.sub(r"\n{3,}", "\n\n", text)
         # 去除行首行尾空白
         lines = [line.strip() for line in text.split("\n")]
         text = "\n".join(lines)
-        # 去除多余空格（保留单个空格）
-        text = re.sub(r"[ \t]+", " ", text)
-        # 去除 PDF 解析常见噪音字符
-        text = re.sub(r"[^\w\s一-鿿.,;:!?()（）【】《》\"'\-@#/\\]", "", text)
+        # 去除多余空格/制表（保留单个空格）
+        text = re.sub(r"[ \t　]+", " ", text)
+        # 仅去掉控制字符与替换符；不要扫掉中文标点（，、：；→· 等）
+        text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f�]", "", text)
         return text.strip()
+
+
+def extract_docx_text(doc) -> str:
+    """从 python-docx Document 提取正文：段落 + 表格 + 文本框。
+
+    简历模板大量使用表格/文本框排版，仅读 doc.paragraphs 会得到空文本。
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def _push(s: str) -> None:
+        s = (s or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            parts.append(s)
+
+    def _walk_table(table) -> None:
+        for row in table.rows:
+            cells: list[str] = []
+            for cell in row.cells:
+                cell_lines = [p.text.strip() for p in cell.paragraphs if p.text and p.text.strip()]
+                # 嵌套表格
+                for nested in getattr(cell, "tables", []) or []:
+                    nested_text = []
+                    for nrow in nested.rows:
+                        nested_text.append(" ".join(c.text.strip() for c in nrow.cells if c.text and c.text.strip()))
+                    if any(nested_text):
+                        cell_lines.append(" ".join(t for t in nested_text if t))
+                if cell_lines:
+                    cells.append(" / ".join(cell_lines) if len(cell_lines) > 1 else cell_lines[0])
+            line = " | ".join(dict.fromkeys(c for c in cells if c))  # 去重相邻合并单元格
+            _push(line)
+
+    # 1) 文档流中的段落与表格（保持大致顺序）
+    body = doc.element.body
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    for child in body.iterchildren():
+        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        if tag == "p":
+            _push(Paragraph(child, doc).text)
+        elif tag == "tbl":
+            _walk_table(Table(child, doc))
+
+    # 2) 兜底：仍为空则扫全部 tables / paragraphs
+    if not parts:
+        for p in doc.paragraphs:
+            _push(p.text)
+        for table in doc.tables:
+            _walk_table(table)
+
+    # 3) 文本框 / 形状内文字（w:txbxContent → w:t）
+    try:
+        from docx.oxml.ns import qn
+
+        for txbx in body.iter(qn("w:txbxContent")):
+            texts = [t.text or "" for t in txbx.iter(qn("w:t"))]
+            _push("".join(texts))
+    except Exception:
+        pass
+
+    # 4) 页眉页脚（部分模板把姓名/联系方式放页眉）
+    try:
+        for section in doc.sections:
+            for part in (
+                section.header,
+                section.first_page_header,
+                section.even_page_header,
+                section.footer,
+            ):
+                if part is None:
+                    continue
+                for p in part.paragraphs:
+                    _push(p.text)
+                for table in part.tables:
+                    _walk_table(table)
+    except Exception:
+        pass
+
+    return "\n".join(parts)
 
 
 class TextCleanerTool(Tool):

@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <AppNav>
-      <router-link to="/workspace" class="ghost-link">AI 助手工作台</router-link>
+      <router-link to="/workspace" class="ghost-link">求职分析</router-link>
     </AppNav>
 
     <div class="ws-tabs">
@@ -19,9 +19,6 @@
           <div class="rail-actions">
             <el-button size="small" :type="recycleMode ? 'default' : 'primary'" @click="toggleRecycle">
               <Trash2 :size="14" style="margin-right: 4px" />回收站
-            </el-button>
-            <el-button v-if="!recycleMode" size="small" type="primary" @click="onCreate">
-              <Plus :size="14" style="margin-right: 4px" />新建
             </el-button>
             <el-button v-if="!recycleMode" size="small" plain type="primary" @click="uploadInput?.click()">
               <Upload :size="14" style="margin-right: 4px" />上传
@@ -56,8 +53,12 @@
           <div class="empty-guide">
             <Library :size="32" class="empty-icon" />
             <p class="empty-title">还没有简历</p>
-            <p class="empty-hint">新建空白简历，或把 AI 助手工作台生成的简历导入进来</p>
-            <el-button size="small" type="primary" plain @click="importDialogVisible = true">从会话导入</el-button>
+            <p class="empty-hint">这里用于修改已有简历。可从求职分析会话导入、上传文件，或走生成向导</p>
+            <div class="empty-actions">
+              <el-button size="small" type="primary" plain @click="importDialogVisible = true">从会话导入</el-button>
+              <el-button size="small" plain @click="uploadInput?.click()">上传</el-button>
+              <el-button size="small" plain @click="router.push('/resume-generation')">去生成</el-button>
+            </div>
           </div>
         </div>
         <div v-else class="rail-body">
@@ -133,8 +134,31 @@
                 <SquareDashedMousePointer :size="13" style="margin-right: 4px" />
                 {{ boxMode ? '框选模式（开）' : '框选模式' }}
               </el-button>
+              <el-dropdown trigger="click" @command="onExportCommand">
+                <el-button size="small" plain :loading="exporting !== ''">
+                  <Download :size="13" style="margin-right: 4px" />导出
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="layout" :disabled="exporting !== '' || !canLayoutExport">
+                      下载 Word（保排版）{{ canLayoutExport ? '' : '· 无原件' }}
+                    </el-dropdown-item>
+                    <el-dropdown-item command="docx" :disabled="exporting !== ''">下载 Word（统一模板）</el-dropdown-item>
+                    <el-dropdown-item command="html" :disabled="exporting !== ''">下载 HTML（统一模板）</el-dropdown-item>
+                    <el-dropdown-item command="md" :disabled="exporting !== ''">下载 Markdown</el-dropdown-item>
+                    <el-dropdown-item command="print" :disabled="exporting !== ''" divided>打印 / 另存 PDF</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-tag v-if="canLayoutExport" size="small" type="success" effect="plain" disable-transitions style="margin-left: 6px">
+                原版式
+              </el-tag>
+              <el-tag v-else-if="currentDoc?.source === 'upload'" size="small" type="info" effect="plain" disable-transitions style="margin-left: 6px">
+                文本重排
+              </el-tag>
             </div>
-            <p v-if="boxMode" class="box-hint">在下方简历预览里拖拽框选区域 → 自动选中对应板块并记录选框</p>
+            <p v-if="boxMode" class="box-hint">在下方简历预览里拖拽框选区域 → 自动选中对应板块并记录选框；点选框右上角 × 可清除</p>
+            <p v-if="exportError" class="export-err">{{ exportError }}</p>
           </div>
 
           <div ref="previewRef" class="preview" @mousedown="onPreviewMouseDown" @mousemove="onPreviewMouseMove" @mouseup="onPreviewMouseUp">
@@ -172,6 +196,15 @@
               <span class="box-label" :style="{ background: sectionColor(viewedSections.findIndex(s => s.id === sec.id)) }">
                 {{ sec.title || '区域' }}
               </span>
+              <button
+                type="button"
+                class="box-clear"
+                title="清除选框"
+                aria-label="清除选框"
+                @click.stop="onClearBox(sec)"
+              >
+                <X :size="12" />
+              </button>
             </div>
 
             <!-- 拖拽选框 -->
@@ -253,7 +286,7 @@
     <el-dialog v-model="importDialogVisible" title="从会话导入简历" width="560px">
       <p class="empty-hint" style="margin-bottom: 12px">
         选择一个已生成简历内容的分析会话，把它的最新简历导入简历库（也可先去
-        <router-link to="/workspace" class="inline-link">AI 助手工作台</router-link> 生成）。
+        <router-link to="/workspace" class="inline-link">求职分析</router-link> 生成）。
       </p>
       <div v-if="sessionsLoading" class="import-list"><SkeletonLoader variant="card" :lines="2" /></div>
       <div v-else-if="importableSessions.length === 0" class="import-list">
@@ -277,7 +310,6 @@ import SkeletonLoader from '../components/SkeletonLoader.vue'
 import RewriteCompareDialog from '../components/resume/RewriteCompareDialog.vue'
 import MatchWorkspace from '../components/matching/MatchWorkspace.vue'
 import {
-  createResumeDoc,
   deleteResumeDoc,
   getResumeDoc,
   importResumeFromSession,
@@ -289,9 +321,11 @@ import {
   setVersionPagePreference,
   updateResumeDoc,
   updateResumeSection,
+  hasLayoutSource,
+  exportResumeLayout,
 } from '../api/resumeLibrary'
 import { listSessions } from '../api/sessions'
-import { importUploadResume } from '../api/resumeGeneration'
+import { importUploadResume, exportResume, downloadBlob, getPhotoInfo, type ExportFormat } from '../api/resumeGeneration'
 import type {
   ResumeLibraryDoc,
   ResumeLibrarySection,
@@ -306,11 +340,12 @@ import {
   Library,
   MessagesSquare,
   Pencil,
-  Plus,
   SquareDashedMousePointer,
   Trash2,
   Upload,
   Wand2,
+  X,
+  Download,
 } from 'lucide-vue-next'
 
 const SECTION_COLORS = ['#c15f3c', '#b85c6e', '#6f8f5f', '#b57b1f', '#8a5a83', '#4c7f7d', '#9c4a2b', '#7a8b3a']
@@ -454,6 +489,7 @@ async function refreshCurrent() {
   if (!viewedVersionId.value || !versions.value.some((v) => v.id === viewedVersionId.value)) {
     viewedVersionId.value = currentDoc.value.current_version_id ?? versions.value[0]?.id ?? null
   }
+  void refreshLayoutSource()
 }
 
 function resetCurrent() {
@@ -467,6 +503,7 @@ async function selectDoc(id: number) {
     currentDoc.value = await getResumeDoc(id)
     viewedVersionId.value = currentDoc.value.current_version_id ?? versions.value[0]?.id ?? null
     selectedSectionId.value = null
+    void refreshLayoutSource()
   } catch (err: unknown) {
     ElMessage.error(extractError(err, '打开简历失败'))
   }
@@ -475,22 +512,6 @@ async function selectDoc(id: number) {
 function selectSection(sec: ResumeLibrarySection) {
   selectedSectionId.value = sec.id
   if (!histories[sec.id]) histories[sec.id] = []
-}
-
-async function onCreate() {
-  try {
-    const { value } = await ElMessageBox.prompt('给这份简历起个名字', '新建简历', {
-      inputValue: '我的简历',
-      inputPattern: /.+/,
-      inputErrorMessage: '名称不能为空',
-    })
-    const doc = await createResumeDoc({ title: value.trim(), source: 'manual' })
-    ElMessage.success('已创建，可以「从会话导入」或直接录入内容')
-    await loadDocs()
-    await selectDoc(doc.id)
-  } catch {
-    /* 用户取消 */
-  }
 }
 
 async function onRename() {
@@ -735,6 +756,139 @@ async function onPreviewMouseUp() {
   }
 }
 
+/** 清除某区域已保存的选框（bounding_box=null） */
+async function onClearBox(sec: ResumeLibrarySection) {
+  try {
+    await updateResumeSection(sec.id, {
+      bounding_box: null,
+    } as unknown as Partial<ResumeLibrarySection>)
+    await refreshCurrent()
+    ElMessage.success(`已清除「${sec.title || '区域'}」的选框`)
+  } catch (err: unknown) {
+    ElMessage.error(extractError(err, '清除选框失败'))
+  }
+}
+
+// ---- 导出当前预览版本 ----
+const exporting = ref<'' | ExportFormat | 'print' | 'layout'>('')
+const exportError = ref('')
+const canLayoutExport = ref(false)
+
+async function refreshLayoutSource() {
+  canLayoutExport.value = false
+  if (!currentDoc.value) return
+  try {
+    const info = await hasLayoutSource(currentDoc.value.id)
+    canLayoutExport.value = !!(info.has_source && info.is_docx)
+  } catch {
+    canLayoutExport.value = false
+  }
+}
+
+function buildExportContent() {
+  const sections = viewedSections.value
+    .filter((s) => ((s.title || '') + (s.content || '')).trim())
+    .map((s) => ({ title: s.title || '模块', content: s.content || '' }))
+  const raw_text = sections.map((s) => `${s.title}\n${s.content}`).join('\n\n')
+  return { sections, raw_text }
+}
+
+function exportTitle(): string {
+  const ver = viewedVersion.value?.version
+  const base = (currentDoc.value?.title || '简历').trim() || '简历'
+  return ver ? `${base}_v${ver}` : base
+}
+
+async function loadExportPhotoId(): Promise<number | null> {
+  try {
+    const res = await getPhotoInfo()
+    return res.data?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+async function onExport(format: ExportFormat) {
+  if (!viewedSections.value.length) {
+    ElMessage.warning('当前版本没有可导出的内容')
+    return
+  }
+  exporting.value = format
+  exportError.value = ''
+  try {
+    const photoId = await loadExportPhotoId()
+    const blob = await exportResume(buildExportContent(), exportTitle(), format, photoId)
+    downloadBlob(blob, `${exportTitle()}.${format === 'md' ? 'md' : format}`)
+    ElMessage.success(`已导出 ${format === 'docx' ? 'Word' : format.toUpperCase()}`)
+  } catch (err: unknown) {
+    exportError.value = extractError(err, '导出失败，请重试')
+    ElMessage.error(exportError.value)
+  } finally {
+    exporting.value = ''
+  }
+}
+
+async function onPrintPdf() {
+  if (!viewedSections.value.length) {
+    ElMessage.warning('当前版本没有可导出的内容')
+    return
+  }
+  exporting.value = 'print'
+  exportError.value = ''
+  try {
+    const photoId = await loadExportPhotoId()
+    const title = exportTitle()
+    const blob = await exportResume(buildExportContent(), title, 'html', photoId)
+    const url = URL.createObjectURL(blob)
+    const win = window.open(url, '_blank')
+    if (win) setTimeout(() => win.print(), 400)
+    else downloadBlob(blob, `${title}.html`)
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (err: unknown) {
+    exportError.value = extractError(err, '导出失败，请重试')
+    ElMessage.error(exportError.value)
+  } finally {
+    exporting.value = ''
+  }
+}
+
+function onExportCommand(cmd: string | number | object) {
+  if (cmd === 'print') {
+    void onPrintPdf()
+    return
+  }
+  if (cmd === 'layout') {
+    void onExportLayout()
+    return
+  }
+  if (cmd === 'docx' || cmd === 'html' || cmd === 'md') {
+    void onExport(cmd)
+  }
+}
+
+/** 保排版导出；失败时由用户选择是否改用统一模板 */
+async function onExportLayout() {
+  if (!currentDoc.value) return
+  exporting.value = 'layout'
+  exportError.value = ''
+  try {
+    const blob = await exportResumeLayout(currentDoc.value.id, viewedVersionId.value)
+    downloadBlob(blob, `${exportTitle()}_保排版.docx`)
+    ElMessage.success('已按原 Word 版式导出')
+  } catch (err: unknown) {
+    const msg = extractError(err, '保排版导出失败')
+    exportError.value = msg
+    const useTpl = await ElMessageBox.confirm(
+      `${msg}。是否改用「统一模板」导出 Word？`,
+      '保排版导出失败',
+      { confirmButtonText: '用统一模板', cancelButtonText: '取消', type: 'warning' },
+    ).then(() => true).catch(() => false)
+    if (useTpl) void onExport('docx')
+  } finally {
+    exporting.value = ''
+  }
+}
+
 onMounted(() => {
   void loadDocs()
 })
@@ -882,6 +1036,13 @@ defineExpose({ openImportDialog })
   color: var(--color-text-secondary);
   line-height: 1.6;
 }
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
 
 /* 中栏 */
 .preview-pane {
@@ -996,6 +1157,33 @@ defineExpose({ openImportDialog })
   padding: 0 6px;
   border-radius: var(--radius-full);
   line-height: 18px;
+}
+.box-clear {
+  pointer-events: auto;
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-bg-elevated, #fff);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.12));
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.box-clear:hover {
+  color: var(--color-danger-600, #b91c1c);
+  background: var(--color-danger-50, #fef2f2);
+}
+.export-err {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-danger-600, #b91c1c);
 }
 .drag-rect {
   position: absolute;

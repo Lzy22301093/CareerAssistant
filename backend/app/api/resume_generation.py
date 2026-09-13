@@ -177,6 +177,14 @@ async def photo_file(
 # === 08 生成与导出 ===
 
 
+@router.get("/templates")
+async def list_resume_templates(user: dict = Depends(require_auth)):
+    """可选简历版式模板。"""
+    from app.services.resume_template import list_templates
+
+    return {"templates": list_templates()}
+
+
 @router.post("/generate")
 async def generate_resume(
     data: WizardGenerateRequest,

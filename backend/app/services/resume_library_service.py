@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -20,6 +21,8 @@ from app.models.schemas import (
     ResumeSectionUpdate,
     ResumeVersionCreate,
 )
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_SOURCES = {"manual", "session", "upload", "generation"}
 ALLOWED_SECTION_TYPES = {
@@ -323,14 +326,19 @@ class ResumeLibraryService:
 
     def update_section(self, db: DBSession, user_id: int, section_id: int, data: ResumeSectionUpdate) -> ResumeSection:
         section = self.get_section(db, user_id, section_id)
-        updates = data.model_dump(exclude_unset=True, exclude_none=True)
+        raw = data.model_dump(exclude_unset=True)
+        # bounding_box 显式传 null 表示清除选框；其它字段仍用 exclude_none 防误清空
+        box_explicit = "bounding_box" in raw
+        bounding = raw.pop("bounding_box", None)
+        updates = {k: v for k, v in raw.items() if v is not None}
         if "section_type" in updates:
             _ensure(updates["section_type"], ALLOWED_SECTION_TYPES, "section_type")
-        bounding = updates.pop("bounding_box", None)
         for field, value in updates.items():
             setattr(section, field, value)
-        if bounding is not None:
-            section.bounding_box = json.dumps(bounding, ensure_ascii=False)
+        if box_explicit:
+            section.bounding_box = (
+                json.dumps(bounding, ensure_ascii=False) if bounding is not None else None
+            )
         db.commit()
         db.refresh(section)
         return section
@@ -494,6 +502,25 @@ class ResumeLibraryService:
         content = sections_from_text(text)
         doc = self.create_document(db, user_id, ResumeDocumentCreate(title=title, source="upload"))
         version = self.add_version(db, user_id, doc.id, ResumeVersionCreate(content=content))
+        # P0：落盘原件，供 Word 保版导出（不提供下载接口）
+        try:
+            import base64 as _b64
+
+            from app.services.resume_docx_layout import ResumeSourceFileService
+
+            raw = _b64.b64decode(file_content_b64)
+            mime = ""
+            low = (filename or "").lower()
+            if low.endswith(".docx"):
+                mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            elif low.endswith(".pdf"):
+                mime = "application/pdf"
+            ResumeSourceFileService().save_original(
+                db, user_id, doc.id, filename or "resume.bin", raw, mime
+            )
+        except Exception as e:
+            # 原件失败不阻断导入
+            logger.warning(f"[ResumeLibrary] 保存上传原件失败 doc={doc.id}: {e}")
         return doc, version
 
     # ---- 会话辅助 ----

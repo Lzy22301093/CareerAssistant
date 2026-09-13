@@ -22,6 +22,7 @@ from app.models.orm import (  # noqa: F401
     ResumeDraft,
     ResumePhoto,
     ResumeSection,
+    ResumeSourceFile,
     ResumeVersion,
     UploadedFile,
     User,

@@ -554,18 +554,65 @@ class ExperienceListResponse(BaseModel):
     items: list[ExperienceDraftItem] = Field(default_factory=list)
 
 
+class WizardEducationEntry(BaseModel):
+    """02 教育经历（结构化）。"""
+    school: str = ""
+    degree: str = Field(default="", description="专科 | 本科 | 硕士 | 博士 | 其他")
+    major: str = ""
+    start: str = Field(default="", description="开始年月 YYYY-MM")
+    end: str = Field(default="", description="结束年月 YYYY-MM；current=True 时忽略")
+    current: bool = Field(default=False, description="是否「至今」")
+    gpa: str = ""
+    rank: str = ""
+    courses: str = ""
+
+
+class WizardSkillItem(BaseModel):
+    """03 专业技能条目。"""
+    name: str = ""
+    level: str = Field(default="", description="可选熟练度：了解 | 熟悉 | 掌握 | 精通")
+
+
+class WizardExperienceEntry(BaseModel):
+    """04 实习经历 / 05 项目经历统一结构（可选 STAR）。"""
+    company: str = Field(default="", description="公司名 / 项目名")
+    title: str = Field(default="", description="岗位 / 角色")
+    start: str = ""
+    end: str = ""
+    current: bool = False
+    duration: str = Field(default="", description="展示用时间段；缺省由 start/end 推导")
+    tech_stack: str = Field(default="", description="项目技术栈（实习可空）")
+    duty: str = Field(default="", description="职责 / 工作内容")
+    achievement: str = Field(default="", description="成果")
+    situation: str = ""
+    task: str = ""
+    action: str = ""
+    result: str = ""
+
+
 class WizardGenerateRequest(BaseModel):
     """08 生成与导出：从向导数据组装简历。"""
     title: str = Field(default="我的新简历", max_length=200, description="生成简历的标题")
-    basic_info: dict = Field(default_factory=dict, description="01 基础信息 {name,email,phone,location,...}")
-    directions: list[str] = Field(default_factory=list, description="02 选中的方向（1-3）")
-    experiences: list[StarResultItem] = Field(default_factory=list, description="03/04 经历（已 STAR 化）")
-    soft_info: dict = Field(default_factory=dict, description="05 {personality,vision,disinterested,self_eval}")
-    photo_id: int | None = Field(default=None, description="06 证件照（resume_photos.id）")
-    module_order: list[str] = Field(default_factory=list, description="07 模块标题顺序（缺省用默认顺序）")
+    basic_info: dict = Field(default_factory=dict, description="01 基本信息 {name,email,phone,location,...}")
+    directions: list[str] = Field(default_factory=list, description="投递方向（1-3）")
+    educations: list[WizardEducationEntry] = Field(default_factory=list, description="02 教育经历")
+    skills: list[WizardSkillItem] = Field(default_factory=list, description="03 专业技能")
+    internships: list[WizardExperienceEntry] = Field(default_factory=list, description="04 实习经历")
+    projects: list[WizardExperienceEntry] = Field(default_factory=list, description="05 项目经历")
+    experiences: list[StarResultItem] = Field(
+        default_factory=list,
+        description="兼容旧版混合经历；internships/projects 为空时按 exp_type 分流",
+    )
+    soft_info: dict = Field(default_factory=dict, description="06 自我评价 {personality,vision,disinterested,self_eval}")
+    photo_id: int | None = Field(default=None, description="07 证件照（resume_photos.id）")
+    module_order: list[str] = Field(default_factory=list, description="模块标题顺序（缺省用默认顺序）")
     page_preference: str = Field(default="one_page", description="one_page | two_pages")
     polish: bool = Field(default=True, description="是否 AI 润色")
     import_to_library: bool = Field(default=True, description="生成后是否直接导入简历库")
+    template: str = Field(
+        default="campus_one_page",
+        description="版式模板：campus_one_page | tech | general",
+    )
 
 
 class ImportGeneratedRequest(BaseModel):
@@ -573,6 +620,11 @@ class ImportGeneratedRequest(BaseModel):
     title: str = Field(..., max_length=200)
     content: dict = Field(..., description='ResumeContent {"sections":[{"title","content"}],"raw_text":str}')
     page_preference: str = Field(default="one_page", description="one_page | two_pages")
+
+
+class ResumeLayoutExportRequest(BaseModel):
+    """工作台保排版导出（优先原 DOCX 原件）。"""
+    version_id: int | None = Field(default=None, description="指定版本；缺省用当前版本")
 
 
 class ResumeExportRequest(BaseModel):

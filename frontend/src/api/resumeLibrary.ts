@@ -1,12 +1,6 @@
 import client from './client'
 import type { ResumeLibraryDoc, ResumeLibrarySection, ResumeLibraryVersion, RewriteResult } from '../types'
 
-export interface ResumeDocCreateParams {
-  title: string
-  source?: string
-  notes?: string
-}
-
 export interface ResumeVersionCreateParams {
   content: Record<string, unknown>
   render_config?: Record<string, unknown>
@@ -23,9 +17,6 @@ export const listResumeDocs = (includeDeleted = false) =>
 
 export const listDeletedResumes = () =>
   client.get<ResumeLibraryDoc[]>('/resumes/recycle-bin').then((r) => r.data)
-
-export const createResumeDoc = (data: ResumeDocCreateParams) =>
-  client.post<ResumeLibraryDoc>('/resumes', data).then((r) => r.data)
 
 export const getResumeDoc = (id: number) =>
   client.get<ResumeLibraryDoc>(`/resumes/${id}`).then((r) => r.data)
@@ -72,3 +63,19 @@ export const adoptSectionRewrite = (versionId: number, sectionId: number, rewrit
 
 export const importResumeFromSession = (sessionId: string) =>
   client.post<ResumeLibraryDoc>('/resumes/import-from-session', { session_id: sessionId }).then((r) => r.data)
+
+/** 是否有 Word 原件可保排版导出 */
+export const hasLayoutSource = (docId: number) =>
+  client
+    .get<{ has_source: boolean; is_docx: boolean; filename: string | null }>(`/resumes/${docId}/has-layout-source`)
+    .then((r) => r.data)
+
+/** 保排版导出（基于上传的 Word 原件） */
+export async function exportResumeLayout(docId: number, versionId?: number | null) {
+  const res = await client.post<Blob>(
+    `/resumes/${docId}/export-layout`,
+    { version_id: versionId ?? null },
+    { responseType: 'blob', timeout: 120000 },
+  )
+  return res.data as Blob
+}
