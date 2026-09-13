@@ -55,7 +55,11 @@ async def save_interview_report(
     state: dict[str, Any],
     db_session=None,
 ) -> None:
-    """将面试报告写入 MySQL。"""
+    """将面试报告写入 MySQL。
+
+    注意：db_session 是同步 SQLAlchemy Session（SessionLocal），
+    commit/rollback 不能 await。
+    """
     if db_session is None:
         return
 
@@ -76,6 +80,12 @@ async def save_interview_report(
         final_report_json=json.dumps(report, ensure_ascii=False),
         completion_reason=state.get("completion_reason", ""),
     )
-    db_session.add(report_row)
-    await db_session.commit()
-    logger.info(f"[InterviewSession] report saved to MySQL: {interview_id}")
+    try:
+        db_session.add(report_row)
+        # 同步 Session：不可 await
+        db_session.commit()
+        logger.info(f"[InterviewSession] report saved to MySQL: {interview_id}")
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"[InterviewSession] report save failed: {e}", exc_info=True)
+        raise

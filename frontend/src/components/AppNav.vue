@@ -70,7 +70,7 @@ const modules = [
   { label: '个人画像', route: '/knowledge-base', icon: User },
   { label: '投递记录', route: '/applications', icon: Megaphone },
   { label: '模拟面试', route: '/mock-interview', icon: MessagesSquare },
-  { label: 'AI 助手', route: '/workspace', icon: Code2 },
+  { label: '求职分析', route: '/workspace', icon: Code2 },
 ]
 
 const initials = computed(() => (auth.user?.username || '用户').slice(0, 1).toUpperCase())

@@ -13,12 +13,7 @@
         <ChatPanel />
       </aside>
       <main class="app-main">
-        <VoiceInterviewPanel
-          v-if="session.interviewActive"
-          :ws-url="session.interviewWsUrl"
-          @end="onInterviewEnd"
-        />
-        <ResultPanel v-else />
+        <ResultPanel />
       </main>
     </div>
 
@@ -30,19 +25,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Clock, Settings } from 'lucide-vue-next'
-import { useSessionStore } from '../stores/session'
 import AppNav from '../components/AppNav.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import ResultPanel from '../components/ResultPanel.vue'
-import VoiceInterviewPanel from '../components/VoiceInterviewPanel.vue'
 import HistoryDrawer from '../components/HistoryDrawer.vue'
 import SettingsDrawer from '../components/SettingsDrawer.vue'
-
-const session = useSessionStore()
-
-function onInterviewEnd() {
-  session.interviewActive = false
-}
 
 const showHistory = ref(false)
 const showSettings = ref(false)

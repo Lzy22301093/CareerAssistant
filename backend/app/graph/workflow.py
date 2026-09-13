@@ -21,7 +21,6 @@ from app.graph.nodes import (
     gap_analyzer_node,
     html_renderer_node,
     interview_qa_node,
-    interview_sim_node,
     jd_analyzer_node,
     planner_node,
     profile_extractor_node,
@@ -92,9 +91,6 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     async def _cover_letter(state: GraphState):
         return await cover_letter_node(state, agents)
 
-    async def _interview_sim(state: GraphState):
-        return await interview_sim_node(state, agents)
-
     async def _clarifier(state: GraphState):
         return await clarifier_node(state, agents)
 
@@ -112,7 +108,6 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     graph.add_node("interview_qa", _interview_qa)
     graph.add_node("question", _question)
     graph.add_node("cover_letter", _cover_letter)
-    graph.add_node("interview_sim", _interview_sim)
     graph.add_node("clarifier", _clarifier)
 
     # 入口：planner
@@ -138,7 +133,6 @@ def build_graph(llm: LLMProvider) -> StateGraph:
             "interview_qa": "interview_qa",
             "question": "question",
             "cover_letter": "cover_letter",
-            "interview_sim": "interview_sim",
             "clarifier": "clarifier",
             "__end__": END,
         },
@@ -148,7 +142,7 @@ def build_graph(llm: LLMProvider) -> StateGraph:
     for node_name in [
         "jd_analyzer", "profile_extractor", "gap_analyzer",
         "content_generator", "html_renderer", "interview_qa",
-        "interview_sim", "clarifier",
+        "clarifier",
     ]:
         graph.add_edge(node_name, "plan_advance")
 

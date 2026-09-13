@@ -37,7 +37,7 @@
             <el-input
               v-model="jdText"
               type="textarea"
-              :rows="5"
+              :rows="8"
               placeholder="粘贴岗位职责与要求，面试官会据此考察（可选，但强烈建议）"
             />
           </el-form-item>
@@ -45,6 +45,51 @@
             <el-input-number v-model="maxTurns" :min="3" :max="15" />
           </el-form-item>
         </el-form>
+
+        <!-- 简历来源（主材料） -->
+        <div class="resume-box">
+          <div class="resume-head">
+            <span class="resume-title">本场简历（主材料）</span>
+            <div class="resume-head-actions">
+              <el-button size="small" :loading="resumeListLoading" @click="loadResumeDocs">刷新</el-button>
+              <el-button size="small" type="primary" plain @click="resumeUploadRef?.click()">
+                上传简历
+              </el-button>
+              <input
+                ref="resumeUploadRef"
+                type="file"
+                accept=".pdf,.docx,.txt,.md"
+                hidden
+                @change="onResumeUpload"
+              />
+            </div>
+          </div>
+          <p class="resume-hint">面试以「JD + 本场简历」为主；个人画像仅作补充。请选择本次投递使用的简历版本。</p>
+          <el-select
+            v-model="selectedResumeId"
+            placeholder="从简历库选择"
+            style="width: 100%"
+            clearable
+            :loading="resumeListLoading"
+            @change="onResumeSelect"
+          >
+            <el-option
+              v-for="d in resumeDocs"
+              :key="d.id"
+              :label="`${d.title}（v${d.version_count}）`"
+              :value="d.id"
+            />
+          </el-select>
+          <div v-if="selectedResumeBrief" class="resume-chip">
+            已选：{{ selectedResumeBrief }}
+          </div>
+          <div v-else-if="!resumeDocs.length && !resumeListLoading" class="resume-warn">
+            简历库为空。可上传，或到「简历工作台/生成」先建一份。
+          </div>
+          <el-checkbox v-model="useProfileSupplement" style="margin-top: 8px">
+            将个人画像作为补充信息
+          </el-checkbox>
+        </div>
 
         <!-- TTS 语音偏好 -->
         <div class="tts-box">
@@ -54,7 +99,7 @@
           </div>
           <el-form label-width="72px" class="tts-form">
             <el-form-item label="音色">
-              <el-select v-model="ttsVoice" style="width: 220px" size="default">
+              <el-select v-model="ttsVoice" style="width: min(320px, 100%)" size="default">
                 <el-option
                   v-for="v in voiceOptions"
                   :key="v.id"
@@ -87,14 +132,17 @@
           <p class="tts-hint">试听满意后再开始面试；设置会记住，下次自动带上。</p>
         </div>
 
-        <div v-if="profileBrief" class="profile-chip">
-          已加载画像：{{ profileBrief }}
+        <div v-if="useProfileSupplement && profileBrief" class="profile-chip">
+          画像补充：{{ profileBrief }}
         </div>
-        <div v-else class="profile-warn">
-          暂未读取到已确认画像，面试仍可进行，但问题会偏通用。建议先到「个人知识库」完善。
+        <div v-else-if="useProfileSupplement && !profileBrief" class="profile-warn">
+          暂未读取到已确认画像；将主要依赖 JD + 简历提问。
         </div>
 
         <p v-if="prepError" class="err">{{ prepError }}</p>
+        <p v-if="!selectedResumeId && phase === 'prepare'" class="resume-warn" style="margin-top: 0">
+          未选择简历时，面试问题会偏通用，建议先选一份。
+        </p>
 
         <div class="prep-actions">
           <el-button type="primary" size="large" :loading="preparing" @click="beginInterview">
@@ -199,7 +247,7 @@
 
         <div class="report-actions">
           <el-button type="primary" @click="backToPrepare">再开一场</el-button>
-          <el-button @click="goWorkspace">去 AI 助手工作台</el-button>
+          <el-button @click="goWorkspace">去求职分析</el-button>
         </div>
       </section>
     </main>
@@ -280,12 +328,15 @@ import {
   readTtsPreviewError,
   listTtsVoices,
 } from '../api/interview'
+import { listResumeDocs, getResumeDoc } from '../api/resumeLibrary'
+import { importUploadResume } from '../api/resumeGeneration'
 import { useAuthStore } from '../stores/auth'
 import type {
   ActiveVoiceInterviewStore,
   InterviewHistoryDetail,
   InterviewHistoryItem,
   ProfileUpdateProposal,
+  ResumeLibraryDoc,
 } from '../types'
 
 const router = useRouter()
@@ -403,7 +454,18 @@ const startPayload = ref<{
   voice?: string
   speed?: number
   tts_style?: string
+  resume?: Record<string, unknown>
+  use_profile_as_supplement?: boolean
 } | null>(null)
+
+// 简历来源
+const resumeDocs = ref<ResumeLibraryDoc[]>([])
+const resumeListLoading = ref(false)
+const selectedResumeId = ref<number | null>(null)
+const selectedResumeBrief = ref('')
+const selectedResumePayload = ref<Record<string, unknown> | null>(null)
+const useProfileSupplement = ref(true)
+const resumeUploadRef = ref<HTMLInputElement | null>(null)
 
 const voicePanelRef = ref<InstanceType<typeof VoiceInterviewPanel> | null>(null)
 const interviewId = ref('')
@@ -500,6 +562,76 @@ function buildJdAnalysis() {
   }
 }
 
+async function loadResumeDocs() {
+  resumeListLoading.value = true
+  try {
+    resumeDocs.value = (await listResumeDocs(false)) || []
+  } catch {
+    resumeDocs.value = []
+  } finally {
+    resumeListLoading.value = false
+  }
+}
+
+function buildResumePayloadFromDoc(doc: ResumeLibraryDoc): Record<string, unknown> | null {
+  const ver = doc.current_version
+  if (!ver) return null
+  const content = ver.content || {}
+  const sections =
+    (content.sections as { title?: string; content?: string }[]) ||
+    (ver.sections || []).map((s) => ({ title: s.title || '', content: s.content || '' }))
+  const raw =
+    (content.raw_text as string) ||
+    sections.map((s) => `${s.title || ''}\n${s.content || ''}`).join('\n\n')
+  return {
+    document_id: doc.id,
+    version_id: ver.id,
+    title: doc.title,
+    sections,
+    raw_text: raw,
+  }
+}
+
+async function onResumeSelect(docId: number | null) {
+  selectedResumePayload.value = null
+  selectedResumeBrief.value = ''
+  if (!docId) return
+  try {
+    const doc = await getResumeDoc(docId)
+    const payload = buildResumePayloadFromDoc(doc)
+    if (!payload) {
+      ElMessage.warning('该简历暂无可用版本')
+      selectedResumeId.value = null
+      return
+    }
+    selectedResumePayload.value = payload
+    const n = ((payload.sections as unknown[]) || []).length
+    selectedResumeBrief.value = `${doc.title} · ${n} 个模块`
+  } catch {
+    ElMessage.error('读取简历失败')
+    selectedResumeId.value = null
+  }
+}
+
+async function onResumeUpload(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    ElMessage.info('正在上传并解析简历…')
+    const res = await importUploadResume(file.name.replace(/\.[^.]+$/, '') || '上传简历', file)
+    const doc = res.data
+    await loadResumeDocs()
+    selectedResumeId.value = doc.id
+    await onResumeSelect(doc.id)
+    ElMessage.success('简历已导入并选为本场材料')
+  } catch {
+    ElMessage.error('上传失败（支持 PDF/DOCX/TXT/MD）')
+  } finally {
+    input.value = ''
+  }
+}
+
 async function loadProfile() {
   try {
     const res = await listProfileItems(undefined, 'confirmed')
@@ -556,12 +688,14 @@ async function beginInterview() {
     if (!Object.keys(profile.value).length) await loadProfile()
     startPayload.value = {
       jd_analysis: buildJdAnalysis(),
-      profile: profile.value,
+      profile: useProfileSupplement.value ? profile.value : {},
       max_turns: maxTurns.value,
       user_id: auth.user?.id ?? null,
       voice: ttsVoice.value,
       speed: ttsSpeed.value,
       tts_style: ttsStyle.value,
+      resume: selectedResumePayload.value || {},
+      use_profile_as_supplement: useProfileSupplement.value,
     }
     // 新开一场：清掉旧的本地暂存
     clearActiveLocal()
@@ -665,12 +799,14 @@ async function resumeActive() {
     await loadProfile()
     startPayload.value = {
       jd_analysis: buildJdAnalysis(),
-      profile: profile.value,
+      profile: useProfileSupplement.value ? profile.value : {},
       max_turns: maxTurns.value,
       user_id: auth.user?.id ?? null,
       voice: ttsVoice.value,
       speed: ttsSpeed.value,
       tts_style: ttsStyle.value,
+      resume: selectedResumePayload.value || {},
+      use_profile_as_supplement: useProfileSupplement.value,
     }
     phase.value = 'conduct'
     await nextTick()
@@ -710,9 +846,20 @@ async function openHistory() {
   try {
     const res = await listInterviewHistory(50)
     historyList.value = res.data || []
-  } catch {
+  } catch (e: unknown) {
     historyList.value = []
-    ElMessage.error('加载历史失败')
+    const anyErr = e as {
+      response?: { status?: number; data?: { detail?: string } }
+      message?: string
+    }
+    const detail = anyErr?.response?.data?.detail
+    const status = anyErr?.response?.status
+    let msg = '加载历史失败'
+    if (status === 404) msg = '面试历史接口不存在，请确认后端已更新重启'
+    else if (status === 401) msg = '请先登录后再查看历史'
+    else if (detail) msg = String(detail)
+    else if (anyErr?.message) msg = `加载历史失败：${anyErr.message}`
+    ElMessage.error(msg)
   } finally {
     historyLoading.value = false
   }
@@ -722,8 +869,9 @@ async function openHistoryDetail(id: string) {
   try {
     const res = await getInterviewHistoryDetail(id)
     historyDetail.value = res.data
-  } catch {
-    ElMessage.error('加载详情失败')
+  } catch (e: unknown) {
+    const anyErr = e as { response?: { data?: { detail?: string } } }
+    ElMessage.error(anyErr?.response?.data?.detail || '加载详情失败')
   }
 }
 
@@ -816,6 +964,7 @@ onMounted(() => {
   loadProfile()
   loadTtsPref()
   loadVoices()
+  loadResumeDocs()
   const a = loadActiveLocal()
   // 24h 内的未完成面试才提示恢复
   if (a?.interviewId && Date.now() - (a.updatedAt || 0) < 24 * 3600 * 1000) {
@@ -835,9 +984,9 @@ onMounted(() => {
 .vi-main {
   flex: 1;
   width: 100%;
-  max-width: 760px;
+  max-width: none;
   margin: 0 auto;
-  padding: var(--space-8) var(--space-5) var(--space-10);
+  padding: var(--space-6) var(--space-8) var(--space-10);
 }
 
 .eyebrow {
@@ -871,7 +1020,8 @@ onMounted(() => {
 }
 
 .prep-form {
-  max-width: 560px;
+  width: 100%;
+  max-width: none;
 }
 
 .profile-chip {
@@ -910,6 +1060,57 @@ onMounted(() => {
   line-height: 1.6;
 }
 
+.resume-box {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-light);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-elevated);
+}
+
+.resume-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.resume-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+}
+
+.resume-head-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.resume-hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.resume-chip {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-accent-600);
+  background: var(--color-accent-50);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  display: inline-block;
+}
+
+.resume-warn {
+  font-size: var(--text-xs);
+  color: var(--color-warning-600);
+  margin: var(--space-2) 0;
+}
+
 .tts-box {
   margin-top: var(--space-4);
   padding: var(--space-4);
@@ -932,7 +1133,8 @@ onMounted(() => {
 }
 
 .tts-form {
-  max-width: 520px;
+  width: 100%;
+  max-width: none;
 }
 
 .tts-speed-row {

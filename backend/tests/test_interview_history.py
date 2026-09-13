@@ -93,3 +93,45 @@ def test_history_detail(client: TestClient):
 def test_history_detail_not_found(client: TestClient):
     res = client.get("/api/interview/history/missing")
     assert res.status_code == 404
+
+
+def test_save_interview_report_sync_commit():
+    """同步 Session 不能 await commit（回归：报告曾因此写不进库）。"""
+    import asyncio
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.interview.session_service import save_interview_report
+    from app.models.database import Base
+    from app.models.orm import InterviewReport, User
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    user = User(username="u2", email="u2@test.com", hashed_password="x")
+    db.add(user)
+    db.commit()
+
+    state = {
+        "user_id": user.id,
+        "session_id": "s1",
+        "target_position": "后端",
+        "difficulty_level": "medium",
+        "turn_count": 2,
+        "dimension_scores": {"专业知识": 8},
+        "strengths": ["ok"],
+        "weaknesses": [],
+        "conversation_history": [{"role": "assistant", "content": "hi"}],
+        "final_report": {"overall_score": 8, "summary": "不错"},
+        "completion_reason": "max_turns",
+    }
+    asyncio.get_event_loop().run_until_complete(
+        save_interview_report("iv-sync-1", state, db)
+    )
+    row = db.query(InterviewReport).filter_by(interview_id="iv-sync-1").first()
+    assert row is not None
+    assert row.user_id == user.id
+    assert row.turn_count == 2
+    db.close()

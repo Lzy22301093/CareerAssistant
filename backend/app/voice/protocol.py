@@ -38,6 +38,8 @@ class ClientMsg:
     voice: str = ""         # start: TTS 音色
     speed: float | None = None  # start: TTS 语速 0.7-1.6
     tts_style: str = ""     # start: professional | casual | concise
+    resume: dict[str, Any] = field(default_factory=dict)  # start: 本场简历（主材料）
+    use_profile_as_supplement: bool = True  # start: 画像是否作补充
 
 
 # ── 服务端 → 客户端 ──────────────────────────────────────
@@ -95,6 +97,8 @@ def parse_client_msg(raw: str) -> ClientMsg | None:
         voice=obj.get("voice") or "",
         speed=obj.get("speed"),
         tts_style=obj.get("tts_style") or obj.get("style") or "",
+        resume=obj.get("resume") or {},
+        use_profile_as_supplement=bool(obj.get("use_profile_as_supplement", True)),
     )
 
 

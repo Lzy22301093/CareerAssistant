@@ -35,9 +35,11 @@ def _get_handler():
 
 class InterviewStartRequest(BaseModel):
     jd_analysis: dict[str, Any] = Field(..., description="JD 分析结果")
-    profile: dict[str, Any] = Field(..., description="候选人画像")
+    profile: dict[str, Any] = Field(default_factory=dict, description="候选人画像（补充）")
     referenced_questions: list[str] = Field(default_factory=list, description="已参考的面试题")
     max_turns: int = Field(default=10, ge=3, le=30)
+    resume: dict[str, Any] = Field(default_factory=dict, description="本场简历（主材料）")
+    use_profile_as_supplement: bool = Field(default=True, description="是否用画像补充")
 
 
 class InterviewStartResponse(BaseModel):
@@ -81,7 +83,9 @@ async def start_interview(
             profile=req.profile,
             referenced_questions=req.referenced_questions,
             max_turns=req.max_turns,
-            user_id=user.get("id"),  # require_auth 返回的 user 字典以 "id" 标识
+            user_id=user.get("id"),
+            resume=req.resume or None,
+            use_profile_as_supplement=req.use_profile_as_supplement,
         )
         return InterviewStartResponse(
             interview_id=result["interview_id"],
@@ -117,7 +121,7 @@ async def submit_answer(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/history", response_model=list[dict[str, Any]])
+@router.get("/history")
 async def list_interview_history(
     user: dict = Depends(require_auth),
     db: Session = Depends(get_db),
@@ -126,25 +130,36 @@ async def list_interview_history(
     """当前用户的面试历史（已完成报告列表，按时间倒序）。"""
     from app.models.orm import InterviewReport
 
-    rows = (
-        db.query(InterviewReport)
-        .filter(InterviewReport.user_id == user["id"])
-        .order_by(InterviewReport.created_at.desc())
-        .limit(max(1, min(limit, 100)))
-        .all()
-    )
-    return [
-        {
-            "interview_id": r.interview_id,
-            "target_position": r.target_position or "",
-            "turn_count": r.turn_count or 0,
-            "completion_reason": r.completion_reason or "",
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "overall_score": _overall_from_report(r.final_report_json),
-            "summary": _summary_from_report(r.final_report_json),
-        }
-        for r in rows
-    ]
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="未认证，请先登录")
+
+    try:
+        q = db.query(InterviewReport)
+        # 只查当前用户；历史数据 user_id 可能为空则不展示
+        rows = (
+            q.filter(InterviewReport.user_id == user_id)
+            .order_by(InterviewReport.created_at.desc())
+            .limit(max(1, min(int(limit or 50), 100)))
+            .all()
+        )
+        return [
+            {
+                "interview_id": r.interview_id,
+                "target_position": r.target_position or "",
+                "turn_count": r.turn_count or 0,
+                "completion_reason": r.completion_reason or "",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "overall_score": _overall_from_report(r.final_report_json),
+                "summary": _summary_from_report(r.final_report_json),
+            }
+            for r in rows
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"list_interview_history failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"加载面试历史失败: {e}")
 
 
 @router.get("/history/{interview_id}")
@@ -158,16 +173,26 @@ async def get_interview_history_detail(
 
     from app.models.orm import InterviewReport
 
-    row = (
-        db.query(InterviewReport)
-        .filter(
-            InterviewReport.interview_id == interview_id,
-            InterviewReport.user_id == user["id"],
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="未认证，请先登录")
+
+    try:
+        row = (
+            db.query(InterviewReport)
+            .filter(
+                InterviewReport.interview_id == interview_id,
+                InterviewReport.user_id == user_id,
+            )
+            .first()
         )
-        .first()
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="面试记录不存在")
+        if row is None:
+            raise HTTPException(status_code=404, detail="面试记录不存在")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"get_interview_history_detail failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"加载面试详情失败: {e}")
 
     def _loads(raw: str | None, default):
         if not raw:

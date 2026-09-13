@@ -29,15 +29,15 @@
       <el-tab-pane label="JD 分析" name="jd">
         <div v-if="session.jdAnalysis" class="tab-content">
           <el-descriptions :column="2" border>
-            <el-descriptions-item label="职位名称">{{ session.jdAnalysis.job_title }}</el-descriptions-item>
+            <el-descriptions-item label="职位名称">{{ session.jdAnalysis.job_title || '-' }}</el-descriptions-item>
             <el-descriptions-item label="公司">{{ session.jdAnalysis.company || '-' }}</el-descriptions-item>
             <el-descriptions-item label="薪资">{{ session.jdAnalysis.salary_range || '-' }}</el-descriptions-item>
             <el-descriptions-item label="地点">{{ session.jdAnalysis.location || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="摘要" :span="2">{{ session.jdAnalysis.summary }}</el-descriptions-item>
+            <el-descriptions-item label="摘要" :span="2">{{ session.jdAnalysis.summary || '-' }}</el-descriptions-item>
           </el-descriptions>
 
           <h4 class="section-title">岗位要求</h4>
-          <el-table :data="session.jdAnalysis.requirements">
+          <el-table :data="session.jdAnalysis.requirements || []">
             <el-table-column prop="category" label="类别" width="100">
               <template #default="{ row }">
                 <el-tag size="small">{{ row.category }}</el-tag>
@@ -53,7 +53,7 @@
             </el-table-column>
           </el-table>
 
-          <div v-if="session.jdAnalysis.nice_to_have.length" class="nice-to-have-section">
+          <div v-if="session.jdAnalysis.nice_to_have?.length" class="nice-to-have-section">
             <h4 class="section-title">加分项</h4>
             <div class="tag-list">
               <el-tag v-for="item in session.jdAnalysis.nice_to_have" :key="item" size="small">
@@ -84,7 +84,7 @@
             <el-descriptions-item label="摘要" :span="2">{{ session.profile.summary || '-' }}</el-descriptions-item>
           </el-descriptions>
 
-          <div v-if="session.profile.skills.length" class="skills-section">
+          <div v-if="session.profile.skills?.length" class="skills-section">
             <h4 class="section-title">技能标签</h4>
             <div class="tag-list">
               <el-tag v-for="skill in session.profile.skills" :key="skill" type="success" size="small">
@@ -93,7 +93,7 @@
             </div>
           </div>
 
-          <div v-if="session.profile.experience.length" class="experience-section">
+          <div v-if="session.profile.experience?.length" class="experience-section">
             <h4 class="section-title">工作经历</h4>
             <el-timeline>
               <el-timeline-item
@@ -112,7 +112,7 @@
             </el-timeline>
           </div>
 
-          <div v-if="session.profile.projects.length" class="projects-section">
+          <div v-if="session.profile.projects?.length" class="projects-section">
             <h4 class="section-title">项目经历</h4>
             <div v-for="(proj, i) in session.profile.projects" :key="i" class="project-card">
               <h4 class="proj-title">{{ proj.name }}</h4>
@@ -146,17 +146,17 @@
           <div class="score-section">
             <div class="score-header">
               <span class="score-label">匹配度</span>
-              <span class="score-value" :style="{ color: scoreColor }">{{ Math.round(session.gapAnalysis.overall_score) }}%</span>
+              <span class="score-value" :style="{ color: scoreColor }">{{ Math.round(session.gapAnalysis.overall_score || 0) }}%</span>
             </div>
             <div class="score-bar-track">
               <div
                 class="score-bar-fill"
-                :style="{ width: `${session.gapAnalysis.overall_score}%`, backgroundColor: scoreColor }"
+                :style="{ width: `${session.gapAnalysis.overall_score || 0}%`, backgroundColor: scoreColor }"
               />
             </div>
           </div>
 
-          <div v-if="session.gapAnalysis.strengths.length" class="strengths-section">
+          <div v-if="session.gapAnalysis.strengths?.length" class="strengths-section">
             <h4 class="section-title">优势</h4>
             <div class="tag-list">
               <el-tag v-for="s in session.gapAnalysis.strengths" :key="s" type="success" size="small">
@@ -167,7 +167,7 @@
 
           <div class="gaps-section">
             <h4 class="section-title">Gap 列表</h4>
-            <el-table :data="session.gapAnalysis.gaps">
+            <el-table :data="session.gapAnalysis.gaps || []">
               <el-table-column prop="category" label="类别" width="100">
                 <template #default="{ row }">
                   <el-tag size="small">{{ row.category }}</el-tag>
@@ -186,7 +186,7 @@
             </el-table>
           </div>
 
-          <div v-if="session.gapAnalysis.recommendations.length" class="recommendations-section">
+          <div v-if="session.gapAnalysis.recommendations?.length" class="recommendations-section">
             <h4 class="section-title">建议</h4>
             <ul class="recommendation-list">
               <li v-for="(r, i) in session.gapAnalysis.recommendations" :key="i">{{ r }}</li>
@@ -208,7 +208,7 @@
       <!-- 简历内容 Tab -->
       <el-tab-pane label="简历内容" name="resume">
         <div v-if="session.resumeContent" class="tab-content">
-          <div v-for="(section, i) in session.resumeContent.sections" :key="i" class="resume-section">
+          <div v-for="(section, i) in session.resumeContent.sections || []" :key="i" class="resume-section">
             <h4 class="resume-section-title">{{ section.title }}</h4>
             <div class="section-content" v-html="renderMarkdown(section.content)" />
           </div>
@@ -273,19 +273,6 @@
         </div>
       </el-tab-pane>
 
-      <!-- AI 模拟面试 Tab（文字版；语音版在主页「模拟面试」独立页） -->
-      <el-tab-pane label="AI 模拟面试" name="voice-chat">
-        <div class="tab-content voice-chat-tab">
-          <div class="voice-link-row">
-            <el-button type="primary" plain @click="goVoiceInterview">
-              去语音模拟面试
-            </el-button>
-            <span class="voice-link-hint">完整语音多轮 + 反馈报告，在独立页进行</span>
-          </div>
-          <TextInterviewPanel />
-        </div>
-      </el-tab-pane>
-
       <!-- 调试 Tab -->
       <el-tab-pane label="调试" name="debug">
         <div class="tab-content debug-panel">
@@ -333,22 +320,15 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { ChevronDown } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import { exportResume } from '../api/sessions'
 import SkeletonLoader from './SkeletonLoader.vue'
-import TextInterviewPanel from './TextInterviewPanel.vue'
 import ScreenState from './ScreenState.vue'
 
 const session = useSessionStore()
 const exporting = ref(false)
-const router = useRouter()
-
-function goVoiceInterview() {
-  router.push('/mock-interview')
-}
 
 const formattedResumeJson = computed(() => {
   if (!session.resumeContent) return 'null'
@@ -797,73 +777,5 @@ function renderMarkdown(text: string): string {
 .debug-empty {
   color: var(--color-text-disabled);
   font-size: var(--text-sm);
-}
-
-/* ── AI 模拟面试 Tab ── */
-
-.voice-chat-tab {
-  padding-top: var(--space-2);
-}
-
-.voice-link-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
-}
-
-.voice-link-hint {
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-}
-
-.voice-chat-hint {
-  display: none;
-}
-.voice-chat-tab {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.voice-chat-active {
-  flex: 1;
-  min-height: 0;
-}
-
-.voice-chat-start {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.voice-chat-info {
-  text-align: center;
-  max-width: 360px;
-}
-
-.voice-chat-info svg {
-  color: var(--color-accent-600);
-  margin-bottom: var(--space-4);
-}
-
-.voice-chat-info h3 {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-primary);
-}
-
-.voice-chat-info p {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  line-height: var(--leading-relaxed);
-}
-
-.voice-chat-hint {
-  color: var(--color-text-disabled) !important;
-  font-size: var(--text-xs) !important;
 }
 </style>

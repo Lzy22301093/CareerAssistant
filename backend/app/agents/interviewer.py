@@ -11,10 +11,15 @@ SYSTEM_PROMPT = """你是一位专业的技术面试官，正在进行模拟面�
 
 你的任务是根据面试策略生成下一个面试问题。
 
+## 上下文优先级（重要）
+1. **岗位 JD**：决定考察重点与难度
+2. **候选人简历**：项目/经历细节以简历为准，优先围绕简历追问
+3. **个人画像**：仅作补充（简历未覆盖的技能等），不要与简历冲突时用画像覆盖简历
+
 ## 提问风格
 - 语气自然、专业，像真实面试对话
 - 不要一次问多个问题
-- 追问时要引用候选人的回答
+- 追问时要引用候选人的回答或简历内容
 - 技术问题要有深度，行为问题要有具体场景
 
 ## 输出格式
@@ -32,7 +37,6 @@ class InterviewerAgent(BaseAgent):
     description = "生成面试提问"
 
     temperature: float = 0.7
-    # 面试出题需要结构化 JSON，但不需要 8192；过大拖慢首响
     max_tokens: int = 2048
     max_parse_attempts: int = 2
 
@@ -45,6 +49,9 @@ class InterviewerAgent(BaseAgent):
         referenced_questions = kwargs.get("referenced_questions", [])
         current_question = kwargs.get("current_question", "")
         current_answer = kwargs.get("current_answer", "")
+        resume_text = (kwargs.get("resume_text") or "").strip()
+        profile_supplement = (kwargs.get("profile_supplement") or "").strip()
+        jd_summary = (kwargs.get("jd_summary") or "").strip()
 
         user_content = (
             f"## 面试信息\n"
@@ -53,6 +60,12 @@ class InterviewerAgent(BaseAgent):
             f"- 已覆盖话题：{', '.join(covered_topics) if covered_topics else '无'}\n"
             f"- 待考察话题：{', '.join(pending_topics) if pending_topics else '无'}\n"
         )
+        if jd_summary:
+            user_content += f"- JD 摘要：{jd_summary[:300]}\n"
+        if resume_text:
+            user_content += f"\n## 候选人简历（主材料，优先据此提问）\n{resume_text}\n"
+        if profile_supplement:
+            user_content += f"\n## 个人画像补充（次要）\n{profile_supplement}\n"
 
         if referenced_questions:
             user_content += f"- 候选人已参考过的题目（优先跳过）：{json.dumps(referenced_questions[:10], ensure_ascii=False)}\n"

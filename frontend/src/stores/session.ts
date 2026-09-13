@@ -11,6 +11,76 @@ import type {
   RenderConfig,
 } from '../types'
 
+/** 画像条目可能只含姓名等局部字段，补齐数组避免 ResultPanel 渲染崩溃 */
+function normalizeProfile(raw: unknown): Profile | null {
+  if (!raw || typeof raw !== 'object') return null
+  const p = raw as Partial<Profile> & Record<string, unknown>
+  // 仅有 name 等零散字段、无任何实质内容时不视为有效画像
+  const hasBody =
+    (Array.isArray(p.skills) && p.skills.length > 0) ||
+    (Array.isArray(p.experience) && p.experience.length > 0) ||
+    (Array.isArray(p.projects) && p.projects.length > 0) ||
+    (typeof p.summary === 'string' && p.summary.length > 0)
+  if (!hasBody && !p.name) return null
+  return {
+    name: p.name || '',
+    email: p.email,
+    phone: p.phone,
+    education: Array.isArray(p.education) ? p.education : [],
+    experience: Array.isArray(p.experience) ? p.experience : [],
+    projects: Array.isArray(p.projects) ? p.projects : [],
+    skills: Array.isArray(p.skills) ? p.skills : [],
+    certifications: Array.isArray(p.certifications) ? p.certifications : [],
+    summary: p.summary || '',
+  }
+}
+
+function normalizeGap(raw: unknown): GapAnalysis | null {
+  if (!raw || typeof raw !== 'object') return null
+  const g = raw as Partial<GapAnalysis> & { _error?: string }
+  if (g._error) return null
+  const hasBody =
+    typeof g.overall_score === 'number' ||
+    (Array.isArray(g.gaps) && g.gaps.length > 0) ||
+    (Array.isArray(g.strengths) && g.strengths.length > 0)
+  if (!hasBody) return null
+  return {
+    overall_score: typeof g.overall_score === 'number' ? g.overall_score : 0,
+    gaps: Array.isArray(g.gaps) ? g.gaps : [],
+    strengths: Array.isArray(g.strengths) ? g.strengths : [],
+    recommendations: Array.isArray(g.recommendations) ? g.recommendations : [],
+  }
+}
+
+function normalizeJd(raw: unknown): JDAnalysis | null {
+  if (!raw || typeof raw !== 'object') return null
+  const j = raw as Partial<JDAnalysis> & Record<string, unknown>
+  if (j._error) return null
+  if (!j.job_title && !j.summary && !(Array.isArray(j.requirements) && j.requirements.length)) {
+    return null
+  }
+  return {
+    job_title: j.job_title || '',
+    company: j.company || '',
+    requirements: Array.isArray(j.requirements) ? j.requirements : [],
+    nice_to_have: Array.isArray(j.nice_to_have) ? j.nice_to_have : [],
+    salary_range: j.salary_range,
+    location: j.location,
+    summary: j.summary || '',
+  }
+}
+
+function normalizeResume(raw: unknown): ResumeContent | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Partial<ResumeContent> & Record<string, unknown>
+  if (r._error) return null
+  if (!Array.isArray(r.sections) && !r.raw_text) return null
+  return {
+    sections: Array.isArray(r.sections) ? r.sections : [],
+    raw_text: r.raw_text || '',
+  }
+}
+
 /** localStorage key for persisting the current session ID */
 const SESSION_ID_KEY = 'current_session_id'
 
@@ -53,10 +123,6 @@ export const useSessionStore = defineStore('session', () => {
   const coverLetter = ref<Record<string, unknown> | null>(null)
   const lastAnswer = ref('')
 
-  // 模拟面试状态
-  const interviewActive = ref(false)
-  const interviewWsUrl = ref('')
-
   // AI 语音对话状态
   const voiceChatActive = ref(false)
   const voiceChatWsUrl = ref('')
@@ -89,8 +155,6 @@ export const useSessionStore = defineStore('session', () => {
     renderConfig.value = null
     coverLetter.value = null
     lastAnswer.value = ''
-    interviewActive.value = false
-    interviewWsUrl.value = ''
     voiceChatActive.value = false
     voiceChatWsUrl.value = ''
     triggeredAgents.value = []
@@ -113,10 +177,10 @@ export const useSessionStore = defineStore('session', () => {
     const d = res.data
     sessionId.value = d.session_id
     stage.value = d.stage
-    jdAnalysis.value = d.jd_analysis || null
-    profile.value = d.profile || null
-    gapAnalysis.value = d.gap_analysis || null
-    resumeContent.value = d.resume_content || null
+    jdAnalysis.value = normalizeJd(d.jd_analysis)
+    profile.value = normalizeProfile(d.profile)
+    gapAnalysis.value = normalizeGap(d.gap_analysis)
+    resumeContent.value = normalizeResume(d.resume_content)
     renderConfig.value = d.render_config || null
 
     // 兼容多种数据结构：数组 或 { questions: [...] }
@@ -211,7 +275,7 @@ export const useSessionStore = defineStore('session', () => {
         }
         break
       case 'jd_analysis':
-        jdAnalysis.value = data as unknown as JDAnalysis
+        jdAnalysis.value = normalizeJd(data)
         activeTab.value = 'jd'
         addMessage({
           role: 'system',
@@ -221,7 +285,7 @@ export const useSessionStore = defineStore('session', () => {
         })
         break
       case 'profile':
-        profile.value = data as unknown as Profile
+        profile.value = normalizeProfile(data)
         activeTab.value = 'profile'
         addMessage({
           role: 'system',
@@ -231,7 +295,7 @@ export const useSessionStore = defineStore('session', () => {
         })
         break
       case 'gap_analysis':
-        gapAnalysis.value = data as unknown as GapAnalysis
+        gapAnalysis.value = normalizeGap(data)
         activeTab.value = 'gap'
         addMessage({
           role: 'system',
@@ -241,7 +305,7 @@ export const useSessionStore = defineStore('session', () => {
         })
         break
       case 'resume_content':
-        resumeContent.value = data as unknown as ResumeContent
+        resumeContent.value = normalizeResume(data)
         activeTab.value = 'resume'
         addMessage({
           role: 'system',
@@ -299,29 +363,6 @@ export const useSessionStore = defineStore('session', () => {
           content: `🔀 ${(data as Record<string, unknown>).reason || '正在处理...'}`,
           timestamp: new Date().toISOString(),
           eventType: 'route',
-        })
-        break
-      case 'interview_started': {
-        // 模拟面试启动（前端收到后连接 WS 并发送 START）
-        interviewActive.value = true
-        interviewWsUrl.value = (data as Record<string, unknown>).ws_url as string || '/ws/interview'
-        addMessage({
-          role: 'system',
-          content: `🎤 模拟面试已启动`,
-          timestamp: new Date().toISOString(),
-          eventType: 'interview_started',
-        })
-        isLoading.value = false
-        break
-      }
-      case 'interview_ended':
-        // 模拟面试结束
-        interviewActive.value = false
-        addMessage({
-          role: 'system',
-          content: `✅ 模拟面试结束`,
-          timestamp: new Date().toISOString(),
-          eventType: 'interview_ended',
         })
         break
       case 'interview_answer':
@@ -454,8 +495,6 @@ export const useSessionStore = defineStore('session', () => {
     coverLetter,
     lastAnswer,
     activeTab,
-    interviewActive,
-    interviewWsUrl,
     voiceChatActive,
     voiceChatWsUrl,
     triggeredAgents,

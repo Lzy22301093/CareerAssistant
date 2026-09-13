@@ -1,13 +1,14 @@
 <template>
   <div class="app-page">
-    <AppNav>
+    <AppNav />
+    <div class="app-titlebar">
+      <div class="app-titlebar-text">
+        <div class="app-title">投递记录册</div>
+        <p class="app-sub">跟进每一份投递的进展与结果</p>
+      </div>
       <el-button type="primary" @click="openCreate">
         <Plus :size="16" />新增投递
       </el-button>
-    </AppNav>
-    <div class="app-titlebar">
-      <div class="app-title">投递记录册</div>
-      <p class="app-sub">跟进每一份投递的进展与结果</p>
     </div>
 
     <div class="app-body">
@@ -59,7 +60,7 @@
           <template #empty>
             <div class="table-empty">
               <Inbox :size="36" class="empty-icon" />
-              <p class="empty-text">暂无投递记录，点击右上角「新增投递」记录一条</p>
+              <p class="empty-text">暂无投递记录，点上方「新增投递」记录一条</p>
             </div>
           </template>
           <el-table-column prop="company" label="公司" min-width="140" />
@@ -284,10 +285,15 @@ onMounted(reload)
 <style scoped>
 .app-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--color-bg-page); }
 .app-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
   padding: var(--space-6) var(--space-8) var(--space-4);
   border-bottom: var(--border-light);
   background: color-mix(in srgb, var(--color-bg) 92%, white);
 }
+.app-titlebar-text { min-width: 0; }
 .app-title {
   font-family: var(--font-display);
   font-size: var(--text-xl);
@@ -302,8 +308,8 @@ onMounted(reload)
 }
 .app-body { flex: 1; overflow-y: auto; padding: var(--space-8); }
 .app-panel {
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   background: var(--color-bg);
   border: var(--border-light);
   border-radius: var(--radius-lg);

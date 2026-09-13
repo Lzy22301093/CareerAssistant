@@ -16,14 +16,24 @@ async def open_interview_node(
     state: InterviewState, agents: dict[str, Any]
 ) -> dict[str, Any]:
     """生成面试开场白，初始化面试状态。"""
+    from app.interview.context import (
+        extract_resume_topics,
+        format_profile_supplement,
+        format_resume_for_prompt,
+    )
+
     jd = state.get("jd_analysis", {})
     profile = state.get("profile", {})
+    resume = state.get("resume") or {}
     target = state.get("target_position", jd.get("job_title", "该岗位"))
 
-    # 从 JD 提取待考察话题
+    # 从 JD + 简历提取待考察话题（简历为主补充项目名）
     pending_topics = _extract_topics(jd)
+    for t in extract_resume_topics(resume):
+        if t not in pending_topics:
+            pending_topics.append(t)
+    pending_topics = pending_topics[:15]
 
-    # 初始化维度评分
     dimension_scores = {
         "专业知识": 0.0,
         "问题分析": 0.0,
@@ -32,11 +42,9 @@ async def open_interview_node(
         "学习能力": 0.0,
     }
 
-    # 生成开场白
     company = jd.get("company", "我们公司")
     opening = f"你好，我是{company}的面试官，今天面试{target}这个岗位。我们开始吧。"
 
-    # 生成第一个问题（开场图只跑本节点，不再二次 ask_question）
     interviewer = agents.get("interviewer")
     if interviewer:
         result = await interviewer.run(
@@ -46,6 +54,9 @@ async def open_interview_node(
             pending_topics=pending_topics,
             covered_topics=[],
             referenced_questions=state.get("referenced_questions", []),
+            resume_text=format_resume_for_prompt(resume),
+            profile_supplement=format_profile_supplement(profile),
+            jd_summary=str(jd.get("summary") or jd.get("job_title") or ""),
         )
         first_question = result.get("question", "请介绍一下你自己。")
         first_category = result.get("category", "behavioral")
@@ -89,6 +100,8 @@ async def evaluate_node(
         dimension_scores=state.get("dimension_scores", {}),
         conversation_history=state.get("conversation_history", []),
         referenced_questions=state.get("referenced_questions", []),
+        resume_text=_resume_brief(state),
+        target_position=state.get("target_position", ""),
     )
 
     # 更新维度评分（加权平均）
@@ -142,6 +155,8 @@ async def ask_question_node(
     state: InterviewState, agents: dict[str, Any]
 ) -> dict[str, Any]:
     """Interviewer 根据 Evaluator 决策生成问题。"""
+    from app.interview.context import format_profile_supplement, format_resume_for_prompt
+
     interviewer = agents.get("interviewer")
     if not interviewer:
         logger.error("[ask_question] interviewer agent not found")
@@ -158,6 +173,9 @@ async def ask_question_node(
         referenced_questions=state.get("referenced_questions", []),
         current_question=state.get("current_question", ""),
         current_answer=state.get("current_answer", ""),
+        resume_text=format_resume_for_prompt(state.get("resume")),
+        profile_supplement=format_profile_supplement(state.get("profile")),
+        jd_summary=str((state.get("jd_analysis") or {}).get("summary") or ""),
     )
 
     question = result.get("question", "请继续。")
@@ -269,6 +287,12 @@ async def generate_report_node(
 
 
 # --- 辅助函数 ---
+
+def _resume_brief(state: InterviewState) -> str:
+    from app.interview.context import format_resume_for_prompt
+
+    return format_resume_for_prompt(state.get("resume"))
+
 
 def _append_history(history: list[dict] | None, entry: dict) -> list[dict]:
     """追加一条对话历史，避免整段替换导致上下文丢失。"""

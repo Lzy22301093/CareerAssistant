@@ -70,48 +70,41 @@
 
     <!-- 输入区域 -->
     <div class="input-area">
-      <!-- 面试进行中：提示使用语音面板 -->
-      <div v-if="session.interviewActive" class="interview-active-hint">
-        <Mic :size="14" />
-        <span>面试进行中，请使用右侧语音面板进行回答</span>
-      </div>
-      <template v-else>
-        <div class="input-actions">
-          <el-upload
-            :show-file-list="false"
-            :before-upload="handleFileUpload"
-            accept=".txt,.pdf,.doc,.docx,.md"
-          >
-            <el-button :disabled="!session.sessionId" circle size="small">
-              <Upload :size="16" />
-            </el-button>
-          </el-upload>
-        </div>
-        <el-input
-          v-model="inputText"
-          type="textarea"
-          :rows="2"
-          :placeholder="inputPlaceholder"
-          :disabled="!session.sessionId || session.isLoading"
-          resize="none"
-          @keydown.enter.exact.prevent="handleSend"
-        />
-        <el-button
-          type="primary"
-          :disabled="!canSend"
-          :loading="session.isLoading"
-          @click="handleSend"
+      <div class="input-actions">
+        <el-upload
+          :show-file-list="false"
+          :before-upload="handleFileUpload"
+          accept=".txt,.pdf,.doc,.docx,.md"
         >
-          发送
-        </el-button>
-      </template>
+          <el-button :disabled="!session.sessionId" circle size="small">
+            <Upload :size="16" />
+          </el-button>
+        </el-upload>
+      </div>
+      <el-input
+        v-model="inputText"
+        type="textarea"
+        :rows="2"
+        :placeholder="inputPlaceholder"
+        :disabled="!session.sessionId || session.isLoading"
+        resize="none"
+        @keydown.enter.exact.prevent="handleSend"
+      />
+      <el-button
+        type="primary"
+        :disabled="!canSend"
+        :loading="session.isLoading"
+        @click="handleSend"
+      >
+        发送
+      </el-button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted } from 'vue'
-import { Plus, Upload, MessageSquare, Mic } from 'lucide-vue-next'
+import { Plus, Upload, MessageSquare } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { useSessionStore } from '../stores/session'
 import { sendMessageSSE, uploadFile } from '../api/sessions'
@@ -431,18 +424,5 @@ async function handleFileUpload(file: File) {
 .input-actions {
   display: flex;
   gap: var(--space-2);
-}
-
-.interview-active-hint {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  color: var(--color-accent-600);
-  font-size: var(--text-sm);
-  background: var(--color-accent-50);
-  border: var(--border-light);
-  border-radius: var(--radius-md);
 }
 </style>

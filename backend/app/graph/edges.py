@@ -27,7 +27,6 @@ INTENT_PLAN: dict[str, list[str]] = {
     "ask_question":         ["question"],
     "generate_cover_letter": ["cover_letter"],
     "record_interview":     ["clarifier"],  # 面试记录仍需多轮追问
-    "interview_sim":        ["interview_sim"],
 }
 
 

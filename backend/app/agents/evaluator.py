@@ -75,14 +75,20 @@ class EvaluatorAgent(BaseAgent):
         dimension_scores = kwargs.get("dimension_scores", {})
         conversation_history = kwargs.get("conversation_history", [])
         referenced_questions = kwargs.get("referenced_questions", [])
+        resume_text = (kwargs.get("resume_text") or "").strip()
+        target_position = kwargs.get("target_position", "")
 
         user_content = (
             f"## 当前面试状态\n"
+            f"- 目标岗位：{target_position or '未提供'}\n"
             f"- 已完成轮数：{turn_count}/{max_turns}\n"
             f"- 当前难度：{difficulty}\n"
             f"- 已覆盖话题：{', '.join(covered_topics) if covered_topics else '无'}\n"
             f"- 待考察话题：{', '.join(pending_topics) if pending_topics else '无'}\n"
         )
+        if resume_text:
+            # 评分时对照简历：回答与简历不符可标弱点
+            user_content += f"\n## 候选人简历（主材料，用于核对经历真实性）\n{resume_text[:2000]}\n"
 
         if dimension_scores:
             user_content += f"- 历史维度评分：{json.dumps(dimension_scores, ensure_ascii=False)}\n"

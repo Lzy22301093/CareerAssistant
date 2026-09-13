@@ -37,7 +37,9 @@ class OpenAIProvider:
     def _convert_messages(self, messages: list[Message]) -> list[dict]:
         result = []
         for msg in messages:
-            m: dict = {"role": msg.role.value, "content": msg.content}
+            # Role 是 str Enum；兼容误传纯 str 的情况，避免 `'str' has no attribute 'value'`
+            role = msg.role
+            m: dict = {"role": role.value if hasattr(role, "value") else str(role), "content": msg.content}
             if msg.tool_calls:
                 m["tool_calls"] = [
                     {

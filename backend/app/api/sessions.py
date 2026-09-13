@@ -106,6 +106,31 @@ def _new_session_data(session_id: str) -> dict[str, Any]:
     }
 
 
+def _normalize_profile_dict(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """补齐画像数组字段，避免前端 ResultPanel 因缺 strengths/skills 等崩溃。"""
+    if not raw or not isinstance(raw, dict):
+        return {}
+    out = dict(raw)
+    for key in ("skills", "experience", "projects", "education", "certifications"):
+        if not isinstance(out.get(key), list):
+            out[key] = []
+    return out
+
+
+def _is_substantial_profile(profile: dict[str, Any] | None) -> bool:
+    """画像是否具备可展示的实质内容（仅有姓名等零散字段不算）。"""
+    if not profile or not isinstance(profile, dict):
+        return False
+    if profile.get("_error"):
+        return False
+    return bool(
+        profile.get("skills")
+        or profile.get("experience")
+        or profile.get("projects")
+        or profile.get("summary")
+    )
+
+
 def _text_hash(text: str) -> str:
     """规范化文本后取 sha256 摘要（用于输入变化检测）。"""
     normalized = " ".join(text.split()).lower()
@@ -486,6 +511,7 @@ async def send_message(session_id: str, request: MessageRequest):
         """SSE 事件流。"""
         result: dict[str, Any] = {}  # 初始化结果字典，用于异常处理时保存部分结果
         merged_updates: dict[str, Any] = {}  # 流式各节点的增量更新累计
+        confirmed_only_profile = False  # 本轮是否仅注入已确认画像条目（非真正提取）
         try:
             # 解析上传的文件（支持缓存）
             jd_text, resume_text = await _parse_uploaded_files(session)
@@ -560,6 +586,7 @@ async def send_message(session_id: str, request: MessageRequest):
             }
 
             # 已确认画像条目 → 覆盖/增强 profile 上下文（阶段1 指令1-4）
+            # 注意：这是给 agent 的上下文增强，不应被 SSE 当成「画像提取完成」推送
             if session.get("user_id"):
                 try:
                     from app.models.database import SessionLocal as _SLocal
@@ -570,7 +597,12 @@ async def send_message(session_id: str, request: MessageRequest):
                     finally:
                         _pdb.close()
                     if confirmed_profile:
-                        graph_state["profile"] = {**(session["profile"] or {}), **confirmed_profile}
+                        session_profile = session.get("profile") or {}
+                        merged = _normalize_profile_dict({**session_profile, **confirmed_profile})
+                        graph_state["profile"] = merged
+                        # 会话尚无实质画像、本次只是注入已确认条目 → 标记，跳过产物 SSE
+                        if not _is_substantial_profile(session_profile) and not _is_substantial_profile(merged):
+                            confirmed_only_profile = True
                 except Exception as _p_err:
                     logger.warning(f"[Profile] 读取已确认画像上下文失败: {_p_err}")
 
@@ -609,16 +641,6 @@ async def send_message(session_id: str, request: MessageRequest):
                             "reason": updates.get("intent_reason", ""),
                             "plan": updates.get("execution_plan", []),
                         })
-                        # interview_sim 意图拦截：启动面试，不走后续图节点
-                        if updates["intent"] == "interview_sim":
-                            async for evt in _handle_interview_sim(session, graph_state):
-                                yield evt
-                            # 面试已启动，跳过后续图执行
-                            yield _sse_event("done", {
-                                "stage": "interview",
-                                "message": "模拟面试已启动，请通过语音或文字继续。",
-                            })
-                            return
                     # 节点 trace
                     for tr in (updates.get("workflow_trace") or []):
                         yield _sse_event("trace", tr)
@@ -629,7 +651,10 @@ async def send_message(session_id: str, request: MessageRequest):
                     # 实时推送该节点产出的关键数据
                     for key, event_name in _NODE_EVENT_MAP.items():
                         if updates.get(key):
-                            yield _sse_event(event_name, updates[key])
+                            payload = updates[key]
+                            if key == "profile" and isinstance(payload, dict):
+                                payload = _normalize_profile_dict(payload)
+                            yield _sse_event(event_name, payload)
                     merged_updates.update(updates or {})
 
                     # 即时持久化该节点的结果字段（中断/刷新时已完成产物不丢）
@@ -637,6 +662,8 @@ async def send_message(session_id: str, request: MessageRequest):
                         k: v for k, v in (updates or {}).items()
                         if k in _PERSIST_FIELDS and v is not None
                     }
+                    if "profile" in persist and isinstance(persist["profile"], dict):
+                        persist["profile"] = _normalize_profile_dict(persist["profile"])
                     if persist:
                         session.update(persist)
                         await store.update(session_id, persist)
@@ -644,6 +671,10 @@ async def send_message(session_id: str, request: MessageRequest):
             # updates 模式只返回增量，合并初始状态得到最终结果
             result = dict(graph_state)
             result.update(merged_updates)
+
+            # 仅注入已确认条目、本轮未真正提取画像 → 不落库/不合并记忆
+            if confirmed_only_profile and "profile" not in merged_updates:
+                result.pop("profile", None)
 
             # 更新会话状态
             updates = _build_session_updates(session, result)
@@ -726,7 +757,10 @@ async def send_message(session_id: str, request: MessageRequest):
                 })
 
             # 兜底推送：若某结果没在流式阶段推送（如并行节点合并后字段缺失），这里补齐
+            # 跳过「仅注入已确认画像条目」的 profile，避免前端误展示为画像提取完成
             for key, event_name in _NODE_EVENT_MAP.items():
+                if key == "profile" and confirmed_only_profile:
+                    continue
                 if result.get(key) and not merged_updates.get(key):
                     yield _sse_event(event_name, result[key])
 
@@ -973,7 +1007,6 @@ _NODE_LABELS = {
     "html_renderer": "渲染简历 HTML",
     "question": "回答你的问题",
     "cover_letter": "生成求职文案",
-    "interview_sim": "启动模拟面试",
     "clarifier": "记录面试信息",
 }
 
@@ -1103,25 +1136,6 @@ async def _interview_text_stream(
         yield _sse_event("error", {"detail": str(e), "category": "service"})
 
 
-async def _handle_interview_sim(session: dict[str, Any], graph_state: dict[str, Any]):
-    """处理 interview_sim 意图：通知前端启动面试。
-
-    不在此处启动面试（InterviewHandler.start_interview），
-    而是让前端 VoiceInterviewPanel 通过 WebSocket 发送 START 消息启动，
-    这样 jd_analysis + profile 可以通过 WS 传递，无需前端额外请求。
-    """
-    jd_analysis = session.get("jd_analysis") or {}
-    if not jd_analysis:
-        yield _sse_event("error", {"detail": "请先上传或分析 JD 后再开始模拟面试", "category": "data"})
-        return
-
-    # 推送面试启动事件（前端收到后连接 WS 并发送 START）
-    yield _sse_event("interview_started", {
-        "ws_url": "/ws/interview",
-    })
-    logger.info("[InterviewSim] signaled frontend to start interview via WS")
-
-
 def _classify_error(exc: Exception) -> tuple[str, str]:
     """错误分类（v3）：返回 (category, hint)，供前端针对性提示。"""
     detail = str(exc)
@@ -1164,10 +1178,10 @@ def _build_session_updates(session: dict, result: dict) -> dict[str, Any]:
         updates["stage"] = session["stage"]
 
     if result.get("profile"):
-        session["profile"] = result["profile"]
+        session["profile"] = _normalize_profile_dict(result["profile"])
         if session["stage"] == SessionStage.HAS_JD:
             session["stage"] = SessionStage.HAS_JD_AND_RESUME
-        updates["profile"] = result["profile"]
+        updates["profile"] = session["profile"]
         updates["stage"] = session["stage"]
 
     if result.get("gap_analysis"):

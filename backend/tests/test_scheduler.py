@@ -145,10 +145,6 @@ class TestBuildExecutionPlan:
         plan = build_execution_plan("record_interview", _fresh_state())
         assert plan == ["clarifier"]
 
-    def test_interview_sim(self):
-        plan = build_execution_plan("interview_sim", _fresh_state())
-        assert plan == ["interview_sim"]
-
 
 # === Planner 节点测试 ===
 

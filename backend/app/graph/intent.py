@@ -29,7 +29,6 @@ VALID_INTENTS = {
     "ask_question",
     "generate_cover_letter",
     "record_interview",
-    "interview_sim",
 }
 
 # 低置信阈值：低于该值视为不可信，回退规则引擎

@@ -94,6 +94,33 @@ async def planner_node(state: GraphState, agents: dict) -> dict:
 
     # 4. 计划为空 → 直接结束（export 等意图）
     if not plan:
+        # 数据不足的分析/编辑意图：不要空计划 END（用户只看到「处理完成」），
+        # 回落到自由问答，由 question agent 说明缺什么并基于已有状态给建议。
+        if intent in ("gap_analysis", "content_edit", "render_edit"):
+            logger.info(
+                f"[Node] Planner: intent={intent} 数据不足 → 回落 question 自由问答"
+            )
+            return {
+                "intent": intent,
+                "intent_reason": intent_result.get("reason", ""),
+                "execution_plan": ["question"],
+                "route": "question",
+                "route_reason": f"意图={intent} 数据不足，回落自由问答",
+                "workflow_trace": [
+                    trace_item(
+                        "planner", "success",
+                        input_summary=f"用户输入：{state.get('user_message', '')[:120]}",
+                        output_summary=f"意图={intent} 数据不足 → question",
+                        artifacts={
+                            "intent": intent,
+                            "reason": intent_result.get("reason", ""),
+                            "plan": ["question"],
+                            "fallback": "question",
+                        },
+                    )
+                ],
+                **extra_returns,
+            }
         logger.info(f"[Node] Planner: intent={intent}, plan 为空 → END")
         return {
             "intent": intent,
@@ -461,9 +488,3 @@ async def clarifier_node(state: GraphState, agents: dict) -> dict:
                        output_summary=question)
         ],
     }
-
-
-async def interview_sim_node(state: GraphState, agents: dict) -> dict:
-    """模拟面试入口：标记意图，由 sessions.py 拦截处理。"""
-    logger.info("[Node] Interview Sim → 标记意图")
-    return {"intent": "interview_sim", "execution_plan": []}

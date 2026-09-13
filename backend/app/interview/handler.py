@@ -68,28 +68,30 @@ class InterviewHandler:
         referenced_questions: list[str] | None = None,
         max_turns: int = 10,
         user_id: int | None = None,
+        resume: dict | None = None,
+        use_profile_as_supplement: bool = True,
     ) -> dict[str, Any]:
-        """开始新面试。
-
-        Returns:
-            {"interview_id": str, "question": str, "state": dict}
-        """
+        """开始新面试。JD+简历为主，画像可选补充。"""
         interview_id = str(uuid.uuid4())
         target_position = jd_analysis.get("job_title", "")
+
+        from app.interview.context import compact_profile, compact_resume
 
         initial_state = {
             **DEFAULT_STATE,
             "session_id": interview_id,
             "interview_id": interview_id,
-            "jd_analysis": jd_analysis,
-            "profile": profile,
+            "jd_analysis": jd_analysis or {},
+            "profile": compact_profile(profile) if use_profile_as_supplement else {},
+            "resume": compact_resume(resume),
+            "use_profile_as_supplement": use_profile_as_supplement,
             "target_position": target_position,
             "referenced_questions": referenced_questions or [],
             "max_turns": max_turns,
             "user_id": user_id,
         }
 
-        # 执行首次图：open_interview → ask_question
+        # 执行首次图：open_interview
         result = await self._start_graph.ainvoke(initial_state)
 
         # 保存状态

@@ -40,6 +40,8 @@ export interface UseVoiceChatOptions {
     voice?: string
     speed?: number
     tts_style?: string
+    resume?: Record<string, unknown>
+    use_profile_as_supplement?: boolean
   }
   /** 面试 ID（重连时传入恢复） */
   interviewId?: string

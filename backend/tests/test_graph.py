@@ -118,11 +118,11 @@ class TestIntentPlan:
     """测试意图 → 执行计划查表。"""
 
     def test_all_intents_have_entries(self):
-        """所有 10 个意图都有对应的计划。"""
+        """所有 9 个意图都有对应的计划。"""
         expected_intents = {
             "upload_jd", "upload_profile", "gap_analysis", "content_edit",
             "render_edit", "export", "ask_question", "generate_cover_letter",
-            "record_interview", "interview_sim",
+            "record_interview",
         }
         assert set(INTENT_PLAN.keys()) == expected_intents
 
@@ -140,9 +140,6 @@ class TestIntentPlan:
 
     def test_record_interview_plan(self):
         assert INTENT_PLAN["record_interview"] == ["clarifier"]
-
-    def test_interview_sim_plan(self):
-        assert INTENT_PLAN["interview_sim"] == ["interview_sim"]
 
 
 # === build_execution_plan 测试 ===
@@ -286,6 +283,24 @@ class TestNodes:
         assert result["intent"] == "upload_profile"
         assert result["resume_text"] == resume_text  # 消息被提取为简历文本
         assert result["execution_plan"][0] == "profile_extractor"  # 计划非空
+
+    @pytest.mark.asyncio
+    async def test_planner_gap_analysis_missing_data_falls_back_to_question(self):
+        """gap_analysis 缺少 JD/画像 → 回落 question 自由问答，而不是空计划 END。"""
+        llm = MockLLM(json.dumps({
+            "intent": "gap_analysis",
+            "confidence": 0.9,
+            "reason": "用户问测试岗位要调整什么",
+        }))
+        agents = create_agents(llm)
+        state: GraphState = {
+            "user_message": "这是我的简历，我想找一份测试的工作，有哪些需要调整？",
+            "session_id": "test",
+        }
+        result = await planner_node(state, agents)
+        assert result["intent"] == "gap_analysis"
+        assert result["execution_plan"] == ["question"]
+        assert result["route"] == "question"
 
     @pytest.mark.asyncio
     async def test_jd_analyzer_node(self):

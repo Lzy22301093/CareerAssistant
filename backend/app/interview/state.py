@@ -14,8 +14,10 @@ class InterviewState(TypedDict, total=False):
     interview_id: str                  # 本次面试唯一 ID
 
     # ── 面试配置（初始化时注入，只读）──
-    jd_analysis: dict[str, Any]        # JD 分析结果
-    profile: dict[str, Any]            # 候选人画像
+    jd_analysis: dict[str, Any]        # JD 分析结果（主）
+    profile: dict[str, Any]            # 候选人画像（补充）
+    resume: dict[str, Any]             # 本场选用简历（主）{document_id,version_id,title,sections,raw_text}
+    use_profile_as_supplement: bool    # 是否用画像补充
     target_position: str               # 目标岗位
     referenced_questions: list[str]    # 用户已参考的面试题（避免重复出题）
 

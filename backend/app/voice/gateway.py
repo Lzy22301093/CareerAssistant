@@ -280,6 +280,8 @@ async def _handle_start(session: InterviewSession, msg: ClientMsg) -> None:
             referenced_questions=msg.referenced_questions or None,
             max_turns=msg.max_turns,
             user_id=msg.user_id,
+            resume=msg.resume or None,
+            use_profile_as_supplement=bool(getattr(msg, "use_profile_as_supplement", True)),
         )
         interview_id = result["interview_id"]
         session.interview_id = interview_id

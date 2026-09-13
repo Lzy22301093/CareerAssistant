@@ -82,7 +82,7 @@ const cards: Card[] = [
   },
   {
     label: '简历工作台',
-    desc: '简历库 · 多版本 · 区域改写 · 岗位匹配',
+    desc: '修改已有简历 · 多版本回滚 · 区域改写 · 岗位匹配',
     icon: FileText,
     route: '/resume-library',
     accent: '#b57b1f',
@@ -95,7 +95,7 @@ const cards: Card[] = [
     accent: '#5b6b9e',
   },
   {
-    label: 'AI 助手工作台',
+    label: '求职分析',
     desc: '贴 JD · 传简历 · 对话式协作与结果面板',
     icon: Code2,
     route: '/workspace',
