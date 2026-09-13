@@ -1,4 +1,4 @@
-"""LLM 调用级观测埋点（agent-upgrade-plan.md C1）。
+"""LLM 调用级观测埋点。
 
 项目内所有 LLM 调用都经由 BaseAgent._call_llm（Agent 节点、意图分类、
 结构化调用 consolidate 等），在此统一记录：

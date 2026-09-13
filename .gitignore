@@ -273,3 +273,18 @@ backend/exports/
 
 # 产品参考资料（27MB 截图），只读不入库
 逆向工程/
+
+# 本地开发过程文档（保留本机，不入库）
+/GOAL.md
+/docs/handoff.md
+/docs/implementation-plan.md
+/docs/implementation-instructions.md
+/docs/goal-log.md
+/docs/phase1-acceptance.md
+/docs/agent-upgrade-plan.md
+/docs/refactor-plan.md
+/docs/overnight-agent-playbook.md
+/docs/ai-mock-interview-review.md
+/HANDOFF.md
+/docs/HANDOFF-2026-08-12.md
+/docs/superpowers/

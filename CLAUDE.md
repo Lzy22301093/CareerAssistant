@@ -119,4 +119,4 @@ frontend/src/
 
 ## 详细文档
 
-文档索引：`docs/README.md` · v3 架构设计（当前蓝本）：`docs/architecture-v3.md` · v2 架构设计：`docs/architecture-v2.md` · 部署指南：`docs/DEPLOYMENT.md` · 实施计划：`docs/implementation-plan.md`
+文档索引：`README.md` · v3 架构设计（当前蓝本）：`docs/architecture-v3.md` · 部署指南：`docs/DEPLOYMENT.md`（过程文档仅存本机，不入库）

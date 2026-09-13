@@ -1,4 +1,4 @@
-"""Tests for LLM 调用级观测埋点（agent-upgrade-plan.md C1）。"""
+"""Tests for LLM 调用级观测埋点。"""
 
 import pytest
 from unittest.mock import AsyncMock, patch

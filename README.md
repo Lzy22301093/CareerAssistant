@@ -199,9 +199,7 @@ frontend/src/
 ## 文档
 
 - [架构设计 v3](docs/architecture-v3.md) — 当前系统蓝本
-- [架构设计 v2](docs/architecture-v2.md) — 原始设计
 - [部署指南](docs/DEPLOYMENT.md) — 三种部署模式 + FAQ
-- [实施计划](docs/implementation-plan.md) — 开发进度记录
 
 ## License
 

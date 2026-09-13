@@ -1,7 +1,7 @@
 # AGENTS.md
 
 本文件供 ZCode / 自动化 Agent 在本仓库执行长任务时使用，只收录**长期有效的项目级规则**。
-当前进度、一次性任务、交接状态见 `docs/handoff.md` 与 `docs/implementation-plan.md`，不要写进本文件。
+当前进度、一次性任务、交接状态记录在**本地过程文档**（`docs/handoff.md`、`docs/implementation-plan.md`，仅存本机不入库），不要写进本文件。
 
 ## 1. 项目目标
 
@@ -52,7 +52,7 @@ frontend/src/
   composables/  # useVoiceChat.ts
   styles/       # tokens.css / element-overrides.css（视觉改动只在这两层做）
 
-docs/           # 长期契约: agents-contract.md DEPLOYMENT.md；进度: handoff.md implementation-plan.md
+docs/           # 长期契约: agents-contract.md DEPLOYMENT.md；过程文档（handoff/plan 等）仅存本机不入库
 逆向工程/        # FResume 产品参考资料，只读，不参与构建
 uploads/        # 运行时上传文件，不入 git
 ```
@@ -73,7 +73,7 @@ uploads/        # 运行时上传文件，不入 git
 - **能力单元契约**（`docs/agents-contract.md`）：每个 Agent 只写 GraphState 中属于自己的字段，越权写入视为 Bug；单元间不直接互调，由 planner/执行计划调度；单元不直接访问数据库，一律经 GraphState 读写。
 - **SSE 事件兼容性**：已有事件名与字段结构（如 `clarification` 的消息字段是 `question` 而非 `content`；`interview_questions` 在 session 中存为 `{questions: [...]}`）是前后端契约，只能新增不能改名。
 - **增量重算语义**：`render_config` 永不因输入变化被裁剪；下游产物必须记录"基于版本"（`*_analyzed_version`）。
-- **不做清单**：不引入 multi-agent 通信框架；不自研 vector store；招聘大盘、网申插件、订阅计费等不在范围内（详见 implementation-plan 的 v1 不做清单）。
+- **不做清单**：不引入 multi-agent 通信框架；不自研 vector store；招聘大盘、网申插件、订阅计费等不在范围内。
 - `逆向工程/` 目录只读。
 - `clarifier`、`reviewer`、`graph/reflection.py` 处于"v4 重构待移除"的半拆状态（工作流仍注册 clarifier 节点）——**不要基于它们扩展新功能**，也不要在未确认的情况下贸然删除。
 
@@ -137,7 +137,7 @@ cd frontend && npm run build
 3. 动过 ORM：`init_db.py` 已同步，且为已有数据库准备了增量迁移脚本。
 4. 动过 SSE 事件 / GraphState 字段：逐一核对新旧前端对事件与字段的兼容性。
 5. 涉及 UI：跑通一次关键路径冒烟（登录 → 会话消息 → 结果面板），视觉改动只用 `styles/tokens.css`、`element-overrides.css` 两层。
-6. 按项目惯例把进度回写 `docs/implementation-plan.md`（勾选指令/阶段），必要时更新 `docs/handoff.md`。
+6. 按项目惯例把进度回写本地过程文档 `docs/implementation-plan.md`（勾选指令/阶段），必要时更新 `docs/handoff.md`（两份文档仅存本机，不入库）。
 
 ## 12. 其他工作约定
 
