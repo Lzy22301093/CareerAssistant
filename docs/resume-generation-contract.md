@@ -1,38 +1,39 @@
 # 简历生成区 + 简历库导入 · 前后端契约（前端对接用）
 
-> **日期**: 2026-09-06
-> **用途**: 另一对话正在重做前端；本文档给出**简历生成区（8 步向导）与简历库导入**的后端契约，
-> 前端按此实现 UI，**不要改动后端**（后端已实现并测试全绿，512+ 用例）。
-> **后端基线**: 514 passed（含新增 test_resume_wizard_service / test_resume_import_service）。
+> **日期**: 2026-09-08（向导 8 模块重构）
+> **用途**: 简历生成区（8 步向导）与简历库导入的前后端契约。
+> **后端基线**: 557 passed（含 wizard / template / import / export）。
 
 ---
 
 ## 0. 一句话
 
-- **生成区**（新页面，建议入口：功能墙卡片"简历生成"）＝ 8 步向导，步骤数据逐步存 `resume_drafts`（暂存退出），最后一步调 `/api/resume-generation/generate` 生成简历并可**直入简历库**（`source=generation`）。
-- **简历库导入**：① 生成区产物由 `import_to_library=true` 直接入库；② 上传文件走 `POST /api/resumes/import-upload`（PDF/DOCX/TXT/MD → 解析 → 入库，`source=upload`）；③ 已有 "从会话导入" 保留。
-- 生成区产物与简历工作台的**框选/区域改写天然联动**（同一 `ResumeContent {sections}` 模型，入库自动拆 `ResumeSection`，`section_type` 按标题推断，新增 `objective` 类型）。
+- **生成区**＝ 8 步向导，步骤数据逐步存 `resume_drafts`（暂存退出），最后一步调 `/api/resume-generation/generate` 生成简历并可**直入简历库**（`source=generation`）。
+- **简历库导入**：① 生成区产物由 `import_to_library=true` 直接入库；② 上传文件走 `POST /api/resumes/import-upload`；③ 已有 "从会话导入" 保留。
+- 生成区产物与简历工作台的**框选/区域改写天然联动**（同一 `ResumeContent {sections}` 模型）。
 
 ---
 
-## 1. 8 步向导数据流
+## 1. 8 步向导数据流（v2 模块拆分）
 
 ```
-01 基础信息 ──► (表单) basic_info
-02 画像与方向 ──► GET /api/profile/directions/recommend + confirm  → directions: string[]（1-3）
-03 经历补充 ──► experiences: WizardExperienceCreate[]
-04 STAR 结构化 ──► POST /api/resume-generation/star  → StarResultItem[]（可逐条编辑）
-05 软性信息 ──► soft_info（可直接复用 /api/profile/soft-info/generate + save，或本地表单）
-06 证件照 ──► POST /api/resume-generation/photo（multipart）→ photo_id
-07 预览微调 ──► module_order: string[]（模块标题顺序，可上下移）+ 逐模块文本可编辑
-08 生成与导出 ──► POST /api/resume-generation/generate（含 page_preference 1/2 页）→ content + document
-   └─ 每步可「暂存退出」：POST /api/resume-generation/draft（step + 本步数据快照）
+01 基本信息 + 投递方向 ──► basic_info + directions（1-3）
+02 教育经历 ──► educations: WizardEducationEntry[]（学校/层次/专业/起止含「至今」/GPA/排名/课程可选）
+03 专业技能 ──► skills: WizardSkillItem[]（name+level）+ basic_info.certifications
+04 实习经历 ──► internships: WizardExperienceEntry[]（公司/岗位/起止/工作内容/成果 + 可选 STAR）
+05 项目经历 ──► projects: WizardExperienceEntry[]（项目名/角色/起止/技术栈/工作/成果 + 可选 STAR）
+06 自我评价 ──► soft_info（personality/vision/disinterested/self_eval；disinterested 不进简历）
+07 证件照 ──► photo_id
+08 生成与导出 ──► 预览微调（module_order）+ generate + export
+   └─ 每步可「暂存」：POST /api/resume-generation/draft（step + 快照，含 draft_version: 2）
 ```
 
-**暂存退出（resume_drafts，每用户一份）**：
-- 保存：`POST /api/resume-generation/draft` body `{step: 1-8, data: {...}}`（data 为任意 JSON，前端自存该步表单数据）。
-- 读取：`GET /api/resume-generation/draft` → `{step: number|null, data: {}, updated_at}`。
-- 清空：`DELETE /api/resume-generation/draft`。
+**草稿兼容**：前端 `restore` 自动迁移旧版——`basic.education` 文本 → `educations`；混合 `experiences` 按 `exp_type` 分流到 `internships`/`projects`；`skills` 字符串 → `{name,level}`。
+
+**暂存（resume_drafts，每用户一份）**：
+- 保存：`POST /api/resume-generation/draft` body `{step: 1-8, data: {...}}`
+- 读取：`GET /api/resume-generation/draft` → `{step: number|null, data: {}, updated_at}`
+- 清空：`DELETE /api/resume-generation/draft`
 
 ---
 
@@ -41,48 +42,50 @@
 ### 2.1 生成区
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/resume-generation/draft` | 保存草稿（暂存退出） |
+| POST | `/api/resume-generation/draft` | 保存草稿 |
 | GET | `/api/resume-generation/draft` | 读草稿 |
 | DELETE | `/api/resume-generation/draft` | 清草稿 |
-| POST | `/api/resume-generation/star` | `{experiences:[WizardExperienceCreate]}` → `{items:[StarResultItem]}`（LLM，~30-50s，前端超时建议 ≥180s） |
-| POST | `/api/resume-generation/experiences/structure` | `{text, directions?}` → `{items:[ExperienceDraftItem]}` 自然语言描述结构化+润色（03，LLM） |
-| POST | `/api/resume-generation/experiences/generate` | `{directions?, count?}` → `{items:[ExperienceDraftItem]}` 无经历时按画像/方向生成（03，LLM） |
-| POST | `/api/resume-generation/photo` | multipart `file`（jpg/jpeg/png/webp，≤5MB）→ `{id,filename,url,created_at}`（每用户一张，覆盖） |
+| POST | `/api/resume-generation/star` | `{experiences:[WizardExperienceCreate]}` → `{items:[StarResultItem]}`（实习/项目步共用，LLM） |
+| POST | `/api/resume-generation/experiences/structure` | `{text, directions?}` → `{items:[ExperienceDraftItem]}`（实习/项目步 AI 包装） |
+| POST | `/api/resume-generation/experiences/generate` | `{directions?, count?}` → `{items:[ExperienceDraftItem]}` |
+| POST | `/api/resume-generation/photo` | multipart `file`（jpg/jpeg/png/webp，≤5MB） |
 | GET | `/api/resume-generation/photo` | 当前照片元信息（无则 `null`） |
-| GET | `/api/resume-generation/photo/file?id=` | 照片二进制（`<img :src>` 可直接用） |
-| POST | `/api/resume-generation/generate` | 见 2.2（LLM 润色可关；~30-90s，前端超时建议 ≥300s） |
-| POST | `/api/resume-generation/export` | `{title, content, format}` → 下载文件（`format`: docx \| html \| md \| json；docx 用 python-docx，html 可浏览器打印转 PDF） |
+| GET | `/api/resume-generation/photo/file?id=` | 照片二进制（须带鉴权，前端用 blob+objectURL） |
+| POST | `/api/resume-generation/generate` | 见 2.2 |
+| POST | `/api/resume-generation/export` | `{title, content, format, photo_id?}` → 下载 |
 
-共用：`generate`/`star` 失败映射——无 key 503、业务 422、LLM 失败 502。
-
-### 2.2 `POST /api/resume-generation/generate` 请求/响应
-请求（`WizardGenerateRequest`）：
+### 2.2 `POST /api/resume-generation/generate`（v2）
 ```json
 {
-  "title": "我的新简历",
+  "title": "张三·后端开发工程师简历",
   "basic_info": { "name":"张三","email":"...","phone":"...","location":"...","birthday":"...","gender":"...",
-                  "education":["北京大学 本科 软件工程 2022-2026"], "certifications":["CET-6"], "skills":["Python"] },
-  "directions": ["后端开发工程师", "算法工程师"],
-  "experiences": [ { "exp_type":"项目|实习|竞赛|课程|校园", "company":"省数学竞赛", "title":"参赛选手",
-                     "situation":"...","task":"...","action":"...","result":"..." } ],
+                  "certifications":["CET-6"] },
+  "directions": ["后端开发工程师"],
+  "educations": [ { "school":"北京大学","degree":"本科","major":"软件工程",
+                    "start":"2022-09","end":"2026-06","current":false,
+                    "gpa":"3.8/4.0","rank":"5/60","courses":"数据结构" } ],
+  "skills": [ { "name":"Python","level":"掌握" } ],
+  "internships": [ { "company":"A公司","title":"后端实习生","start":"2024-06","end":"2024-09","current":false,
+                     "duration":"","tech_stack":"","duty":"...","achievement":"...",
+                     "situation":"","task":"","action":"","result":"" } ],
+  "projects": [ { "company":"校园二手平台","title":"后端负责人","start":"2023-09","end":"","current":true,
+                  "tech_stack":"FastAPI","duty":"...","achievement":"...",
+                  "situation":"","task":"","action":"","result":"" } ],
   "soft_info": { "personality":"...","vision":"...","disinterested":"...","self_eval":"..." },
   "photo_id": 1,
-  "module_order": ["基本信息","求职意向","教育背景","实习/工作经历","项目经历","技能","自我评价","证书/荣誉"],
-  "page_preference": "one_page | two_pages",
+  "module_order": ["基本信息","求职意向","教育背景","实习/工作经历","项目经历","技能","个人优势","证书/荣誉"],
+  "page_preference": "one_page",
   "polish": true,
-  "import_to_library": true
+  "import_to_library": true,
+  "template": "campus_one_page"
 }
 ```
-响应：
-```json
-{
-  "content": { "sections":[{"title":"基本信息","content":"姓名：张三"}], "raw_text":"..." },
-  "document": { 简历库文档（ResumeDocumentDetailOut，含 versions/current_version）| null }
-}
-```
-- `content.sections` 的顺序 = `module_order` 的生效结果（未知标题排后）。
-- `import_to_library=true` 时：建文档（`source=generation`）+ v1（自动拆 `ResumeSection`），`document` 返回其详情；`false` 时仅返回 `content`（前端预览用）。
-- **默认模块集**（后端常量，07 步可只展示/重排这些）：`基本信息 / 求职意向 / 教育背景 / 实习/工作经历 / 项目经历 / 技能 / 自我评价 / 证书/荣誉`。
+- **兼容**：`experiences: StarResultItem[]` 仍可单独提交；仅当 `internships` 与 `projects` 均为空时按 `exp_type` 分流。
+- `duration` 可空：组装时用 `format_period(start,end,current)`，`current=true` 显示「至今」。
+- 教育展示：`学校 · 层次 · 专业 · 起–止（GPA …；排名 …）`，课程可另起「主修课程：…」。
+- 技能展示：`Python（掌握）`。
+
+响应与模块集同旧版：`content.sections` + 可选 `document`；一页纸仍会按模板 `max_experiences` 收紧。
 
 ### 2.3 简历库导入
 | 方法 | 路径 | 说明 |

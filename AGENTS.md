@@ -116,7 +116,7 @@ cd frontend && npm run build
 
 - pytest 配置 `asyncio_mode = auto`（`backend/pytest.ini`），async 测试无需装饰器。
 - 测试全部基于 mock，不需要真实 MySQL/Redis/LLM。
-- 当前基线：**后端 441 passed**（2026-09-04 实测验证），前端 `vue-tsc -b && vite build` 通过。
+- 当前基线：**后端 568 passed**（2026-09-08 导出保版后实测），前端 `vue-tsc -b && vite build` 通过。
 
 ## 9. Docker 使用方式
 
