@@ -198,7 +198,6 @@ frontend/src/
 
 ## 文档
 
-- [架构设计 v3](docs/architecture-v3.md) — 当前系统蓝本
 - [部署指南](docs/DEPLOYMENT.md) — 三种部署模式 + FAQ
 
 ## License
